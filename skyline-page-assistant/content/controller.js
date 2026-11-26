@@ -5,12 +5,14 @@
   const moduleRegistry = globalThis.SkylineModules;
   const deviceProfile = globalThis.SkylineDeviceProfile;
   const etms = globalThis.SkylineEtms;
+  const eims = globalThis.SkylineEims;
   const isMainPage = /^\/main_(?:en|cn)\.html$/.test(location.pathname);
   const isDirectImeiPage = /^\/goip_imei_(?:en|cn)\.html$/.test(location.pathname);
-  if (!imei || !moduleRegistry || !etms || (isMainPage && !deviceProfile) || (!isMainPage && !isDirectImeiPage) || window !== window.top) return;
+  if (!imei || !moduleRegistry || !etms || !eims || (isMainPage && !deviceProfile) || (!isMainPage && !isDirectImeiPage) || window !== window.top) return;
 
   const STORAGE_KEY = 'skyline.imei.pending';
   const ETMS_STORAGE_KEY = 'skyline.etms.pending';
+  const EIMS_STORAGE_KEY = 'skyline.eims.pending';
   const PROFILE_KEY = 'skyline.device-profile.preferences';
   const HIGHLIGHT_CLASS = 'skyline-page-assistant-highlight';
   const BADGE_CLASS = 'skyline-page-assistant-step-badge';
@@ -28,6 +30,10 @@
   let etmsVerificationTimer = null;
   let etmsVerificationSequence = 0;
   let etmsStatusRefreshAt = 0;
+  let eimsSubmitting = false;
+  let eimsVerificationTimer = null;
+  let eimsVerificationSequence = 0;
+  let eimsStatusRefreshAt = 0;
   let activeModule = null;
   let profilePreference = 'auto';
   let detectedProfile = 'unknown';
@@ -307,6 +313,10 @@
       panel.setResult('unconfirmed', '当前 ETMS 预览尚未完成，请先取消或确认真实 Submit。');
       return false;
     }
+    if (panel.eimsPlan && !panel.eimsPlan.attempted) {
+      panel.setResult('unconfirmed', '当前 EIMS 预览尚未完成，请先取消或确认真实 Submit。');
+      return false;
+    }
     return true;
   }
 
@@ -391,7 +401,7 @@
     }
   }
 
-  function locateReboot() {
+  function locateReboot(options = {}) {
     const leftFrame = findFrame('left');
     if (!leftFrame) {
       panel.setResult('unconfirmed', '当前是直接打开的功能页，没有左侧真实菜单。请回到 main_en.html 后使用保存/重启指导。');
@@ -405,10 +415,10 @@
       revealMenuLink(leftWindow, link);
       const onImeiPage = Boolean(pageDocument && !panel.imeiWorkspace.hidden);
       const lastStep = panel.workflow === 'batch' ? 6 : 4;
-      const badgeStep = onImeiPage ? lastStep : 1;
+      const badgeStep = options.badgeStep || (onImeiPage ? lastStep : 1);
       if (onImeiPage) panel.setStep(lastStep);
       highlightIn(leftDocument, leftWindow, link, badgeStep, '点击 Save and Reboot；进入后仍需单独确认', true);
-      panel.setResult('info', '已定位真实 Save and Reboot 菜单。保存/重启可能中断连接，本版本不会自动点击或自动重启。');
+      panel.setResult('info', options.message || '已定位真实 Save and Reboot 菜单。保存/重启可能中断连接，本版本不会自动点击或自动重启。');
     } catch (_) {
       panel.setResult('unconfirmed', '未在真实左侧菜单找到 Save and Reboot，未执行任何操作。');
     }
@@ -558,6 +568,173 @@
     scheduleEtmsVerification(submittedDocument, 1000);
   }
 
+  function readEimsPage() {
+    const current = eims.readCurrent(pageDocument);
+    if (!current) throw new Error('未找到 EIMS 注册表单。');
+    panel.setEimsPage(current);
+    return current;
+  }
+
+  function eimsStepTarget(step) {
+    const current = eims.readCurrent(pageDocument);
+    if (!current) return null;
+    const elements = current.elements;
+    if (step === 1) return pageDocument.querySelector('#ID_ESN_Box_Body') || pageDocument.querySelector('#ESN_Box');
+    if (step === 2) return elements.typeSelect;
+    if (step === 3) return elements.server;
+    if (step === 4) return elements.submit;
+    return elements.status;
+  }
+
+  function highlightEimsStep(step, scroll = true) {
+    panel.setEimsStep(step);
+    if (step === 5) {
+      // EIMS 注册状态必须保存并重启后才会显示；只定位真实菜单，不自动点击或重启。
+      locateReboot({
+        badgeStep: 5,
+        message: '已定位真实 Save and Reboot 菜单。EIMS 注册状态必须保存并重启后才会显示；请手动完成保存重启，设备恢复后回到本页，助手会继续核对注册状态。'
+      });
+      return;
+    }
+    const labels = {
+      1: '确认基本设置区块',
+      2: '选择 EIMS 服务器类型',
+      3: '在真实表单填写服务器、协议、用户名、密码',
+      4: '核对预览后点击真实 Submit',
+      6: '重启后等待注册状态回读为 OK'
+    };
+    highlight(eimsStepTarget(step), step, labels[step] || 'EIMS 注册', scroll);
+  }
+
+  // 与 ETMS 相同：EIMS 状态要等保存重启、回到本页后才就绪，工作区激活期间每秒
+  // 同步一次当前状态行；只读页面、只更新显示，不触碰表单和预览。
+  function refreshEimsStatus() {
+    if (eimsSubmitting || !pageDocument) return;
+    const now = Date.now();
+    if (now - eimsStatusRefreshAt < 1000) return;
+    eimsStatusRefreshAt = now;
+    const current = eims.readCurrent(pageDocument);
+    if (current) panel.refreshEimsCurrent(current);
+  }
+
+  function scheduleEimsVerification(targetDocument, delay) {
+    if (eimsVerificationTimer) clearTimeout(eimsVerificationTimer);
+    const sequence = ++eimsVerificationSequence;
+    eimsVerificationTimer = setTimeout(() => {
+      if (sequence !== eimsVerificationSequence || targetDocument !== pageDocument) return;
+      verifyEimsPending(targetDocument).catch((error) => {
+        eimsSubmitting = false;
+        panel.setBusy(false);
+        panel.setResult('unconfirmed', `EIMS 回读处理失败：${error.message}。请人工核对真实页面。`);
+      });
+    }, delay);
+  }
+
+  async function verifyEimsPending(targetDocument) {
+    if (targetDocument !== pageDocument || !pageWindow) return;
+    const pending = await pendingStorage('get', null, EIMS_STORAGE_KEY);
+    if (targetDocument !== pageDocument) return;
+    if (!pending || pending.kind !== 'eims' || pending.origin !== pageWindow.location.origin || pending.path !== pageWindow.location.pathname) return;
+    // 保存重启加设备恢复可能耗时较长，EIMS 待回读记录保留 60 分钟。
+    if (Date.now() - pending.createdAt > 60 * 60 * 1000) {
+      await pendingStorage('remove', null, EIMS_STORAGE_KEY);
+      eimsSubmitting = false;
+      panel.setBusy(false);
+      panel.clearEimsPreview();
+      panel.setResult('unconfirmed', '一次 EIMS 注册已超过 60 分钟，停止自动回读。请人工检查真实页面注册状态。');
+      return;
+    }
+    const current = eims.readCurrent(pageDocument);
+    panel.setEimsPage(current);
+    const result = eims.evaluateRegistrationReadback(pending, current);
+    eimsSubmitting = false;
+    panel.setBusy(false);
+    if (result.status === 'success') {
+      panel.clearEimsPreview();
+      panel.setEimsStep(6);
+      panel.setResult('success', result.message);
+      highlight(current && current.elements.status, 6, 'EIMS 注册状态 OK', false);
+      await pendingStorage('remove', null, EIMS_STORAGE_KEY);
+      return;
+    }
+    if (result.status === 'failure') {
+      panel.clearEimsPreview();
+      panel.setResult('failure', result.message);
+      highlight(current && current.elements.status, 6, 'EIMS 回读不一致', false);
+      await pendingStorage('remove', null, EIMS_STORAGE_KEY);
+      return;
+    }
+    if (result.status === 'awaiting-reboot') {
+      // 表单已保存但设备尚未重启：状态行必然为空，这不是失败。保留待回读记录并
+      // 低频重读一段时间；用户完成保存重启回到本页时，附加流程会重新核对。
+      panel.clearEimsPreview();
+      panel.setEimsStep(5);
+      if (pending.attempts < 12) {
+        pending.attempts += 1;
+        await pendingStorage('set', pending, EIMS_STORAGE_KEY);
+        panel.setResult('unconfirmed', `${result.message} 请完成第 5 步保存并重启；${(pending.attempts * 5).toFixed(0)} 秒后重读（第 ${pending.attempts}/12 次）。`);
+        scheduleEimsVerification(targetDocument, 5000);
+      } else {
+        panel.setResult('unconfirmed', `${result.message} 请完成第 5 步保存并重启；设备恢复后回到本页会自动继续核对。`);
+      }
+      return;
+    }
+    if (pending.attempts < 12) {
+      pending.attempts += 1;
+      await pendingStorage('set', pending, EIMS_STORAGE_KEY);
+      panel.setResult('unconfirmed', `${result.message} ${(pending.attempts * 2.5).toFixed(1)} 秒后重读（第 ${pending.attempts}/12 次）。`);
+      highlight(current && current.elements.status, 6, '等待 EIMS 注册状态', false);
+      scheduleEimsVerification(targetDocument, 2500);
+      return;
+    }
+    await pendingStorage('remove', null, EIMS_STORAGE_KEY);
+    panel.clearEimsPreview();
+    panel.setResult('unconfirmed', `${result.message} 已等待约 30 秒，请人工核对 EIMS 注册状态。`);
+  }
+
+  async function submitEimsChanges(plan) {
+    if (eimsSubmitting) return;
+    const current = eims.readCurrent(pageDocument);
+    if (!current) throw new Error('真实 EIMS 表单已不存在，未执行提交。');
+    if (!eims.snapshotsEqual(plan.snapshot, eims.snapshot(current))) {
+      throw new Error('预览后真实表单已变化，已停止 Submit。请重新生成预览。');
+    }
+    if (current.type !== eims.EIMS_TYPE) {
+      throw new Error('真实表单的服务器类型已不是 EIMS，已停止 Submit。');
+    }
+    if (!current.passwordFilled) {
+      throw new Error('真实密码框已为空，请在真实表单重新填写密码后再提交。');
+    }
+    const submittedDocument = pageDocument;
+    const pending = {
+      version: 1,
+      kind: 'eims',
+      origin: pageWindow.location.origin,
+      path: pageWindow.location.pathname,
+      expected: {
+        type: eims.EIMS_TYPE,
+        server: plan.server,
+        protocol: plan.protocol,
+        username: plan.username
+      },
+      attempts: 0,
+      createdAt: Date.now()
+    };
+    await pendingStorage('set', pending, EIMS_STORAGE_KEY);
+    if (pageDocument !== submittedDocument) {
+      await pendingStorage('remove', null, EIMS_STORAGE_KEY);
+      throw new Error('等待写入回读记录时真实页面已变化，未点击 Submit。请重新识别页面并预览。');
+    }
+    eimsSubmitting = true;
+    panel.setBusy(true);
+    panel.markEimsAttempted();
+    panel.setEimsStep(5);
+    panel.setResult('info', '正在点击真实表单原有的 Submit。提交后必须保存并重启设备，注册状态才会显示。');
+    highlight(current.elements.submit, 4, '已调用真实 Submit', false);
+    current.elements.submit.click();
+    scheduleEimsVerification(submittedDocument, 1000);
+  }
+
   const panel = new globalThis.SkylinePanel({
     onWorkflowChange(workflow) {
       if (panel.plan && panel.plan.kind === 'batch') {
@@ -625,6 +802,37 @@
     onEtmsExecute(plan) {
       submitEtmsChanges(plan).catch((error) => {
         etmsSubmitting = false;
+        panel.setBusy(false);
+        panel.setResult('failure', error.message);
+      });
+    },
+    onEimsStep(step) {
+      if (!pageDocument || !activeModule || activeModule.id !== 'eims-settings') {
+        openModule('eims-settings');
+        return;
+      }
+      highlightEimsStep(step);
+    },
+    onEimsPreview() {
+      try {
+        const current = eims.readCurrent(pageDocument);
+        if (!current) throw new Error('当前页面不是可识别的 EIMS 注册页面。');
+        const plan = eims.createChangePlan(current);
+        panel.setEimsPreview(plan);
+        highlightEimsStep(4, false);
+      } catch (error) {
+        panel.setResult('failure', error.message);
+      }
+    },
+    onEimsCancel() {
+      panel.clearEimsPreview();
+      panel.setEimsStep(3);
+      panel.setResult('info', '已取消 EIMS 预览；未点击 Submit，真实表单保持你填写的内容。');
+      highlightEimsStep(3, false);
+    },
+    onEimsExecute(plan) {
+      submitEimsChanges(plan).catch((error) => {
+        eimsSubmitting = false;
         panel.setBusy(false);
         panel.setResult('failure', error.message);
       });
@@ -950,6 +1158,7 @@
     activeModule = moduleRegistry.getModule('etms-registration');
     submitting = false;
     etmsSubmitting = false;
+    eimsSubmitting = false;
     panel.setBusy(false);
     installAssistantStyles(pageDocument);
     readEtmsPage();
@@ -962,20 +1171,47 @@
     });
   }
 
+  function attachEimsPage(targetDocument, targetWindow) {
+    clearHighlight();
+    if (eimsVerificationTimer) clearTimeout(eimsVerificationTimer);
+    eimsVerificationSequence += 1;
+    pageDocument = targetDocument;
+    pageWindow = targetWindow;
+    controls = [];
+    activeModule = moduleRegistry.getModule('eims-settings');
+    submitting = false;
+    etmsSubmitting = false;
+    eimsSubmitting = false;
+    panel.setBusy(false);
+    installAssistantStyles(pageDocument);
+    readEimsPage();
+    panel.toggle(true);
+    highlightEimsStep(1, false);
+    verifyEimsPending(targetDocument).catch((error) => {
+      eimsSubmitting = false;
+      panel.setBusy(false);
+      panel.setResult('unconfirmed', `真实页面已返回，但 EIMS 回读记录处理失败：${error.message}。请人工核对当前状态。`);
+    });
+  }
+
   function detachPage() {
-    const discardedPreview = Boolean((panel.plan && !panel.plan.attempted) || (panel.etmsPlan && !panel.etmsPlan.attempted));
+    const discardedPreview = Boolean((panel.plan && !panel.plan.attempted) || (panel.etmsPlan && !panel.etmsPlan.attempted) || (panel.eimsPlan && !panel.eimsPlan.attempted));
     clearHighlight();
     if (verificationTimer) clearTimeout(verificationTimer);
     if (etmsVerificationTimer) clearTimeout(etmsVerificationTimer);
+    if (eimsVerificationTimer) clearTimeout(eimsVerificationTimer);
     verificationSequence += 1;
     etmsVerificationSequence += 1;
+    eimsVerificationSequence += 1;
     pageDocument = null;
     pageWindow = null;
     controls = [];
     submitting = false;
     etmsSubmitting = false;
+    eimsSubmitting = false;
     panel.setBusy(false);
     panel.clearEtmsPreview();
+    panel.clearEimsPreview();
     panel.clearPreview();
     if (isMainPage) {
       panel.showModules(activeModule && activeModule.id, activeModule);
@@ -1003,14 +1239,18 @@
       const targetDocument = rightFrame.contentDocument;
       const isImei = imei.isSupportedPage(targetWindow.location, targetDocument) && imei.collectImeiControls(targetDocument).length;
       const isEtms = !isImei && etms.isSupportedPage(targetWindow.location, targetDocument);
-      const nextModuleId = isImei ? 'imei' : (isEtms ? 'etms-registration' : null);
+      const isEims = !isImei && !isEtms && eims.isSupportedPage(targetWindow.location, targetDocument);
+      const nextModuleId = isImei ? 'imei' : (isEtms ? 'etms-registration' : (isEims ? 'eims-settings' : null));
       if (nextModuleId) {
         if (pageDocument !== targetDocument) {
           if (pageDocument && activeModule && activeModule.id !== nextModuleId) detachPage();
           if (isImei) attachPage(targetDocument, targetWindow);
-          else attachEtmsPage(targetDocument, targetWindow);
+          else if (isEtms) attachEtmsPage(targetDocument, targetWindow);
+          else attachEimsPage(targetDocument, targetWindow);
         } else if (isEtms) {
           refreshEtmsStatus();
+        } else if (isEims) {
+          refreshEimsStatus();
         }
       } else {
         activeModule = moduleRegistry.matchLocation(targetWindow.location);

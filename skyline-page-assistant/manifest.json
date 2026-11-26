@@ -22,7 +22,7 @@
         "http://*/goip_imei_cn.html",
         "https://*/goip_imei_cn.html"
       ],
-      "js": ["core/imei.js", "core/etms.js", "core/modules.js", "core/device-profile.js", "content/panel.js", "content/controller.js"],
+      "js": ["core/imei.js", "core/etms.js", "core/eims.js", "core/modules.js", "core/device-profile.js", "content/panel.js", "content/controller.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

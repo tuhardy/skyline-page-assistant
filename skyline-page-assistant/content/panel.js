@@ -38,6 +38,15 @@
     ['回读状态', '等待真实状态变为 OK；不打开外部注册链接。']
   ];
 
+  const EIMS_STEPS = [
+    ['确认 EIMS 区块', '只在“基本设置”的 EIMS 注册区块操作。'],
+    ['选择 EIMS', '在真实表单把服务器类型选为 EIMS；NONE/EMDA 不是本流程。'],
+    ['填写注册信息', '直接在右侧真实表单填写服务器地址、UDP/TCP（如有）、用户名和密码。'],
+    ['预览并提交', '核对真实表单的非密码字段后，再确认真实 Submit。'],
+    ['保存并重启', 'EIMS 注册状态必须保存并重启设备后才会显示；助手只定位真实菜单，不自动重启。'],
+    ['回读注册状态', '设备重启完成并回到本页后，等待真实注册状态显示 OK。']
+  ];
+
   class SkylinePanel {
     constructor(callbacks) {
       this.callbacks = callbacks || {};
@@ -54,6 +63,10 @@
       this.etmsStep = 1;
       this.etmsPlan = null;
       this.etmsCurrent = null;
+      this.eimsActive = false;
+      this.eimsStep = 1;
+      this.eimsPlan = null;
+      this.eimsCurrent = null;
 
       this.host = document.createElement('div');
       this.host.id = 'skyline-page-assistant-host';
@@ -244,6 +257,32 @@
               <button class="secondary" id="etms-cancel-preview" type="button">取消预览</button>
             </section>
             </section>
+            <section class="workspace" id="eims-workspace" hidden>
+            <button class="link-button back-button" id="eims-back-modules" type="button">← 功能列表</button>
+            <div class="page-state"><span class="live">已连接 EIMS 页面</span><span id="eims-current-value">正在读取…</span></div>
+            <nav class="steps" id="eims-steps" aria-label="EIMS 注册步骤"></nav>
+            <section class="guide">
+              <span id="eims-step-count"></span><h2 id="eims-step-title"></h2><p id="eims-step-description"></p>
+              <div class="guide-actions"><button class="link-button" id="eims-locate" type="button">定位本步</button><button class="link-button" id="eims-next-step" type="button">下一步 →</button></div>
+            </section>
+            <form id="eims-form">
+              <h3 class="form-title">EIMS 注册</h3>
+              <div class="current" id="eims-current">当前：正在读取…</div>
+              <div class="notice">请直接在右侧真实表单中选择 EIMS 服务器类型，并填写服务器地址、UDP/TCP（如有）、用户名和密码；助手只读取非密码字段，密码只检查是否已填写。注册状态必须保存并重启设备后才会显示。</div>
+              <button class="primary" id="eims-preview-button" data-eims-operation type="submit">读取真实表单并预览</button>
+            </form>
+            <section class="preview" id="eims-preview" hidden>
+              <div class="preview-title">核对 EIMS 注册</div>
+              <div class="change-line"><span>类型</span><strong id="eims-preview-type"></strong></div>
+              <div class="change-line"><span>服务器</span><strong id="eims-preview-server"></strong></div>
+              <div class="change-line" id="eims-preview-protocol-row"><span>UDP/TCP</span><strong id="eims-preview-protocol"></strong></div>
+              <div class="change-line"><span>用户名</span><strong id="eims-preview-username"></strong></div>
+              <div class="change-line"><span>密码</span><strong id="eims-preview-password">已填写（不读取、不显示）</strong></div>
+              <div class="auto-note" id="eims-auto-note"></div>
+              <button class="primary" id="eims-execute-button" type="button">确认并提交</button>
+              <button class="secondary" id="eims-cancel-preview" type="button">取消预览</button>
+            </section>
+            </section>
             <div class="result" id="result" role="status" aria-live="polite" hidden></div>
             <div class="footer"><p class="privacy">仅本机处理</p><button class="link-button" id="reboot-guide" type="button">保存 / 重启</button></div>
           </div>
@@ -270,6 +309,10 @@
       this.etmsPreviewButton = this.shadow.getElementById('etms-preview-button');
       this.etmsPreviewSection = this.shadow.getElementById('etms-preview');
       this.etmsExecuteButton = this.shadow.getElementById('etms-execute-button');
+      this.eimsWorkspace = this.shadow.getElementById('eims-workspace');
+      this.eimsPreviewButton = this.shadow.getElementById('eims-preview-button');
+      this.eimsPreviewSection = this.shadow.getElementById('eims-preview');
+      this.eimsExecuteButton = this.shadow.getElementById('eims-execute-button');
       this.moduleList = this.shadow.getElementById('module-list');
       this.profilePreference = this.shadow.getElementById('profile-preference');
 
@@ -282,6 +325,9 @@
       this.shadow.getElementById('etms-back-modules').addEventListener('click', () => this.emit('onBackModules'));
       this.shadow.getElementById('etms-locate').addEventListener('click', () => this.emit('onEtmsStep', this.etmsStep));
       this.shadow.getElementById('etms-next-step').addEventListener('click', () => this.emit('onEtmsStep', Math.min(ETMS_STEPS.length, this.etmsStep + 1)));
+      this.shadow.getElementById('eims-back-modules').addEventListener('click', () => this.emit('onBackModules'));
+      this.shadow.getElementById('eims-locate').addEventListener('click', () => this.emit('onEimsStep', this.eimsStep));
+      this.shadow.getElementById('eims-next-step').addEventListener('click', () => this.emit('onEimsStep', Math.min(EIMS_STEPS.length, this.eimsStep + 1)));
       this.profilePreference.addEventListener('change', () => this.emit('onProfileChange', this.profilePreference.value));
       this.moduleList.addEventListener('click', (event) => {
         const button = event.target.closest('[data-module-id]');
@@ -340,6 +386,21 @@
         }
         this.emit('onEtmsCancel', this.etmsPlan);
       });
+      this.shadow.getElementById('eims-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!this.busy) this.emit('onEimsPreview');
+      });
+      this.eimsExecuteButton.addEventListener('click', () => {
+        if (!this.busy && this.eimsPlan) this.emit('onEimsExecute', this.eimsPlan);
+      });
+      this.shadow.getElementById('eims-cancel-preview').addEventListener('click', () => {
+        if (this.busy || !this.eimsPlan) return;
+        if (this.eimsPlan.attempted) {
+          this.setResult('unconfirmed', '真实 Submit 已经尝试过，取消预览不能撤销设备修改。请等待状态回读或人工核对真实页面。');
+          return;
+        }
+        this.emit('onEimsCancel', this.eimsPlan);
+      });
       this.executeButton.addEventListener('click', () => {
         if (!this.busy && this.plan) this.emit('onExecute', this.plan);
       });
@@ -354,6 +415,8 @@
       });
       this.renderEtmsStepTabs();
       this.setEtmsStep(1);
+      this.renderEimsStepTabs();
+      this.setEimsStep(1);
       this.setWorkflow('single');
       this.setShell(false);
     }
@@ -400,9 +463,11 @@
     showModules(activeId = null, pageModule = null) {
       this.activeModuleId = activeId;
       this.etmsActive = false;
+      this.eimsActive = false;
       this.moduleHome.hidden = false;
       this.imeiWorkspace.hidden = true;
       this.etmsWorkspace.hidden = true;
+      this.eimsWorkspace.hidden = true;
       this.shadow.getElementById('shell-subtitle').textContent = '全局助手 · 顶层页面模式';
       this.shadow.getElementById('module-page-value').textContent = pageModule
         ? `${pageModule.name}${pageModule.capability === 'navigation' ? ' · 仅导航' : ''}`
@@ -411,14 +476,17 @@
         button.classList.toggle('active', button.dataset.moduleId === activeId);
       });
       this.clearEtmsPreview();
+      this.clearEimsPreview();
       this.clearPreview();
     }
 
     showImei() {
       this.etmsActive = false;
+      this.eimsActive = false;
       this.moduleHome.hidden = true;
       this.imeiWorkspace.hidden = false;
       this.etmsWorkspace.hidden = true;
+      this.eimsWorkspace.hidden = true;
       this.shadow.getElementById('shell-subtitle').textContent = this.isMainPage
         ? 'IMEI 设置 · 顶层页面模式'
         : 'IMEI 设置 · 功能页模式';
@@ -426,12 +494,26 @@
 
     showEtms() {
       this.etmsActive = true;
+      this.eimsActive = false;
       this.moduleHome.hidden = true;
       this.imeiWorkspace.hidden = true;
       this.etmsWorkspace.hidden = false;
+      this.eimsWorkspace.hidden = true;
       this.shadow.getElementById('shell-subtitle').textContent = this.isMainPage
         ? 'ETMS 注册 · 顶层页面模式'
         : 'ETMS 注册 · 功能页模式';
+    }
+
+    showEims() {
+      this.etmsActive = false;
+      this.eimsActive = true;
+      this.moduleHome.hidden = true;
+      this.imeiWorkspace.hidden = true;
+      this.etmsWorkspace.hidden = true;
+      this.eimsWorkspace.hidden = false;
+      this.shadow.getElementById('shell-subtitle').textContent = this.isMainPage
+        ? 'EIMS 注册 · 顶层页面模式'
+        : 'EIMS 注册 · 功能页模式';
     }
 
     setPage(mode, controls) {
@@ -539,6 +621,105 @@
       const locked = Boolean(this.etmsPlan);
       this.etmsPreviewButton.disabled = this.busy || locked;
       this.etmsExecuteButton.disabled = this.busy || !this.etmsPlan;
+    }
+
+    setEimsPage(current) {
+      this.eimsCurrent = current || null;
+      this.showEims();
+      this.updateEimsCurrent();
+      this.clearEimsPreview();
+    }
+
+    updateEimsCurrent() {
+      const labels = { 0: 'NONE', 1: 'EIMS', 2: 'EMDA' };
+      const protocolLabels = { 0: 'UDP', 1: 'TCP' };
+      const current = this.eimsCurrent;
+      const type = current && current.type !== null ? (labels[current.type] || `未知 (${current.type})`) : '未识别';
+      const status = current && current.status ? current.status : '空';
+      const protocol = current && current.protocol !== null && current.protocol !== undefined
+        ? (protocolLabels[current.protocol] || current.protocol)
+        : null;
+      this.shadow.getElementById('eims-current-value').textContent = `${type} · 状态 ${status}`;
+      this.shadow.getElementById('eims-current').textContent = current
+        ? `当前：${type} · ${current.server || '—'}${protocol ? ` · ${protocol}` : ''} · ${current.username || '—'} · 状态 ${status}`
+        : '当前：未读取到 EIMS 注册表单';
+    }
+
+    // 与 ETMS 相同：页面状态可能在重启后回到本页时才就绪，工作区只同步显示，
+    // 不触碰表单字段、预览或计划。
+    refreshEimsCurrent(current) {
+      if (!this.eimsActive) return;
+      this.eimsCurrent = current || null;
+      this.updateEimsCurrent();
+    }
+
+    renderEimsStepTabs() {
+      const container = this.shadow.getElementById('eims-steps');
+      container.replaceChildren();
+      EIMS_STEPS.forEach((_, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'step-tab';
+        button.dataset.eimsStep = String(index + 1);
+        button.textContent = `${index + 1} ${['区块', '类型', '填写', '提交', '重启', '状态'][index]}`;
+        button.addEventListener('click', () => this.emit('onEimsStep', index + 1));
+        container.appendChild(button);
+      });
+    }
+
+    setEimsStep(step) {
+      this.eimsStep = Math.max(1, Math.min(EIMS_STEPS.length, Number(step) || 1));
+      const content = EIMS_STEPS[this.eimsStep - 1];
+      this.shadow.getElementById('eims-step-count').textContent = `第 ${this.eimsStep} 步，共 ${EIMS_STEPS.length} 步`;
+      this.shadow.getElementById('eims-step-title').textContent = content[0];
+      this.shadow.getElementById('eims-step-description').textContent = content[1];
+      this.shadow.getElementById('eims-next-step').textContent = this.eimsStep === EIMS_STEPS.length ? '已到最后一步' : '下一步 →';
+      this.shadow.getElementById('eims-next-step').disabled = this.eimsStep === EIMS_STEPS.length;
+      this.shadow.querySelectorAll('[data-eims-step]').forEach((button) => {
+        if (Number(button.dataset.eimsStep) === this.eimsStep) button.setAttribute('aria-current', 'step');
+        else button.removeAttribute('aria-current');
+      });
+    }
+
+    setEimsPreview(plan) {
+      const protocolLabels = { 0: 'UDP', 1: 'TCP' };
+      this.eimsPlan = { ...plan, attempted: false };
+      this.shadow.getElementById('eims-preview-type').textContent = 'EIMS';
+      this.shadow.getElementById('eims-preview-server').textContent = plan.server;
+      const protocolRow = this.shadow.getElementById('eims-preview-protocol-row');
+      if (plan.protocol === null || plan.protocol === undefined) {
+        protocolRow.hidden = true;
+        this.shadow.getElementById('eims-preview-protocol').textContent = '';
+      } else {
+        protocolRow.hidden = false;
+        this.shadow.getElementById('eims-preview-protocol').textContent = protocolLabels[plan.protocol] || String(plan.protocol);
+      }
+      this.shadow.getElementById('eims-preview-username').textContent = plan.username;
+      this.shadow.getElementById('eims-auto-note').textContent = '将按右侧真实表单的当前值提交；密码只确认已填写，不读取、不显示、不保存。提交后必须保存并重启设备，注册状态才会显示。';
+      this.eimsPreviewSection.hidden = false;
+      this.eimsExecuteButton.textContent = '确认并提交 EIMS 注册';
+      this.updateEimsLock();
+      this.setEimsStep(4);
+      this.setResult('info', 'EIMS 预览尚未提交。');
+    }
+
+    clearEimsPreview() {
+      this.eimsPlan = null;
+      this.eimsPreviewSection.hidden = true;
+      this.eimsExecuteButton.disabled = true;
+      this.updateEimsLock();
+    }
+
+    markEimsAttempted() {
+      if (!this.eimsPlan) return;
+      this.eimsPlan.attempted = true;
+      this.eimsExecuteButton.textContent = '再次尝试 Submit（上次结果未确认）';
+    }
+
+    updateEimsLock() {
+      const locked = Boolean(this.eimsPlan);
+      this.eimsPreviewButton.disabled = this.busy || locked;
+      this.eimsExecuteButton.disabled = this.busy || !this.eimsPlan;
     }
 
     replaceOptions(select, values, preferred, label) {
@@ -717,6 +898,7 @@
       this.updateBatchPreparationLock();
       this.executeButton.disabled = busy || !this.plan;
       this.updateEtmsLock();
+      this.updateEimsLock();
     }
 
     setResult(status, message) {

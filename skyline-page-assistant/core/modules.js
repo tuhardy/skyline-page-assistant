@@ -22,8 +22,8 @@
     },
     {
       id: 'eims-settings',
-      name: 'EIMS 设置',
-      capability: 'navigation',
+      name: 'EIMS 注册',
+      capability: 'operation',
       family: 'sms',
       pages: ['eims_settings_en.html', 'eims_settings_cn.html']
     },

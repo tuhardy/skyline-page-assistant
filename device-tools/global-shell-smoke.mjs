@@ -45,6 +45,22 @@ const etmsPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <div id="ID_TdErmStatus"></div>
 <div class="infoBoxBodyBtns"><input type="submit" value="确定" onclick="document.getElementById('ID_TdErmStatus').textContent='OK'; return false;"></div>
 </div></form></div></body></html>`;
+// 与真实页面一致：form 包裹 #ESN_Box，下拉有 id，服务器/用户名/密码输入框只有 name；
+// Submit 后页面不重载、注册状态保持为空（必须保存重启后设备才会渲染状态）。
+const eimsPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+<form action="" method="post" name="form1"><div class="infoBox" id="ESN_Box"><div class="infoBoxBody" id="ID_ESN_Box_Body">
+<table class="inputBox"><tbody>
+<tr><td>服务器类型:</td><td><select name="esn_server_type" id="ID_esn_server_type">
+<option value="0" selected>NONE</option><option value="1">EIMS</option><option value="2">EMDA</option></select></td></tr>
+<tr><td>服务器地址:</td><td><input class="textValue" type="text" name="esn_server" value="" maxlength="64"/></td></tr>
+<tr id="esn_ucp_tcp_tr_id"><td>UDP/TCP:</td><td><select name="esn_ucp_tcp" id="ID_esn_ucp_tcp">
+<option value="0">UDP</option><option value="1" selected>TCP</option></select></td></tr>
+<tr><td>用户名:</td><td><input class="textValue" type="text" name="esn_username" value="" maxlength="64"/></td></tr>
+<tr><td>密码:</td><td><input class="textValue" type="password" name="esn_password" value="" maxlength="64"/></td></tr>
+<tr><td>注册状态:</td><td id="ID_TdEsnStatus" class="inputValue2"></td></tr>
+</tbody></table>
+<div class="infoBoxBodyBtns"><input type="submit" value="确定" onclick="return false;"/><input type="reset" value="重置"/></div>
+</div></div></form></body></html>`;
 const pages = {
   '/main_cn.html': '<!doctype html><html><head><meta charset="utf-8"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}</style></head><body><iframe src="mainindex_cn.html"></iframe></body></html>',
   '/mainindex_cn.html': `<!doctype html><html><frameset cols="*,1050,*"><frame name="top" src="main_top_cn.html"><frameset rows="96,*"><frame src="about:blank"><frameset cols="190,*"><frame name="left" src="main_left_cn.html"><frame name="right" src="initial_config_cn.html"></frameset></frameset><frame src="about:blank"></frameset></html>`,
@@ -56,6 +72,7 @@ menuPages.filter((page) => page !== 'goip_imei').forEach((page) => {
   pages[`/${page}_cn.html`] = `<!doctype html><html><body>${page}</body></html>`;
 });
 pages['/user_management_cn.html'] = etmsPage;
+pages['/eims_settings_cn.html'] = eimsPage;
 
 const server = http.createServer((request, response) => {
   if (request.url === '/main_top_cn.html') {
@@ -106,8 +123,8 @@ async function evaluate(expression) {
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
   return result.result.value;
 }
-async function waitFor(expression) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+async function waitFor(expression, attempts = 80) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       if (await evaluate(expression)) return;
     } catch (_) {}
@@ -125,6 +142,7 @@ try {
   await waitFor(`document.readyState === 'complete' && document.querySelector('iframe')?.contentDocument?.querySelector('frame[name="right"]')?.contentDocument?.readyState === 'complete'`);
   await evaluate(await readFile(`${project}\\core\\imei.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\core\\etms.js`, 'utf8'));
+  await evaluate(await readFile(`${project}\\core\\eims.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\core\\modules.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\core\\device-profile.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\content\\panel.js`, 'utf8'));
@@ -339,13 +357,81 @@ try {
     };
   })()`);
 
+  // —— EIMS 注册指导：真实表单直填，提交后必须保存重启才能看到注册状态 ——
   await evaluate(`${shadow}.querySelector('[data-module-id="eims-settings"]').click()`);
   await waitFor(`${rightPath} === '/eims_settings_cn.html'`);
-  const navigation = await evaluate(`(() => ({
+  const eimsNavigation = await evaluate(`(() => ({
     path: ${rightPath},
-    homeVisible: !${shadow}.getElementById('module-home').hidden,
-    active: ${shadow}.querySelector('[data-module-id="eims-settings"]').classList.contains('active')
+    active: ${shadow}.querySelector('[data-module-id="eims-settings"]').classList.contains('active'),
+    moduleName: ${shadow}.querySelector('[data-module-id="eims-settings"] strong').textContent
   }))()`);
+  await waitFor(`${shadow}.getElementById('eims-workspace').hidden === false && ${shadow}.getElementById('eims-current').textContent.includes('NONE')`);
+  const eimsAttached = await evaluate(`(() => ({
+    workspaceVisible: !${shadow}.getElementById('eims-workspace').hidden,
+    current: ${shadow}.getElementById('eims-current').textContent,
+    panelFormRemoved: !${shadow}.getElementById('eims-server') && !${shadow}.getElementById('eims-password')
+  }))()`);
+  // 真实表单服务器类型仍为 NONE 时，预览必须失败并提示选择 EIMS
+  await evaluate(`${shadow}.getElementById('eims-preview-button').click()`);
+  await waitFor(`${shadow}.getElementById('result').textContent.includes('EIMS') && ${shadow}.getElementById('result').textContent.includes('类型')`);
+  const eimsWrongType = await evaluate(`(() => ({
+    result: ${shadow}.getElementById('result').textContent,
+    previewHidden: ${shadow}.getElementById('eims-preview').hidden
+  }))()`);
+  // 用户直接在右侧真实表单选择 EIMS 并填写；密码框为空时预览必须失败
+  await evaluate(`(() => {
+    const right = document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument;
+    right.getElementById('ID_esn_server_type').value = '1';
+    right.querySelector('[name="esn_server"]').value = 'eims.example.com';
+    right.querySelector('[name="esn_username"]').value = 'eimsUser';
+  })()`);
+  await evaluate(`${shadow}.getElementById('eims-preview-button').click()`);
+  await waitFor(`${shadow}.getElementById('result').textContent.includes('请先在真实表单中填写 EIMS 密码')`);
+  const eimsEmptyPassword = await evaluate(`(() => ({
+    result: ${shadow}.getElementById('result').textContent,
+    previewHidden: ${shadow}.getElementById('eims-preview').hidden
+  }))()`);
+  await evaluate(`(() => {
+    const right = document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument;
+    right.querySelector('[name="esn_password"]').value = 'secret';
+  })()`);
+  await evaluate(`${shadow}.getElementById('eims-preview-button').click()`);
+  await waitFor(`${shadow}.getElementById('eims-preview').hidden === false`);
+  const eimsPreview = await evaluate(`(() => ({
+    text: ${shadow}.getElementById('eims-preview').textContent,
+    protocol: ${shadow}.getElementById('eims-preview-protocol').textContent,
+    passwordLabel: ${shadow}.getElementById('eims-preview-password').textContent
+  }))()`);
+  await evaluate(`${shadow}.getElementById('eims-execute-button').click()`);
+  // 提交后注册状态仍为空：首次回读必须进入"等待保存重启"，待回读记录必须保留并计划低频重读
+  await waitFor(`${shadow}.getElementById('result').textContent.includes('表单已提交保存。EIMS 注册状态必须保存并重启设备后才会显示')`);
+  const eimsAwaitingReboot = await evaluate(`(() => ({
+    result: ${shadow}.getElementById('result').textContent,
+    pending: globalThis.__pending['skyline.eims.pending'] || null,
+    step: ${shadow}.getElementById('eims-step-title').textContent
+  }))()`);
+  // 模拟设备完成保存重启：状态行出现 OK，低频重读应确认成功并清除记录
+  await evaluate(`document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument.getElementById('ID_TdEsnStatus').textContent = 'OK'`);
+  // 第 5 步只定位真实保存重启菜单，不自动重启
+  await evaluate(`${shadow}.getElementById('eims-locate').click()`);
+  const eimsRebootGuide = await evaluate(`(() => {
+    const left = document.querySelector('iframe').contentDocument.querySelector('frame[name="left"]').contentDocument;
+    const link = left.querySelector('a[href="save_reboot_cn.html"]');
+    return {
+      submenuVisible: getComputedStyle(link.closest('.menuSub')).display !== 'none',
+      message: ${shadow}.getElementById('result').textContent
+    };
+  })()`);
+  await waitFor(`${shadow}.getElementById('result').textContent.includes('EIMS 注册状态已回读为 OK')`, 200);
+  const eimsResult = await evaluate(`(() => {
+    const right = document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument;
+    return {
+      result: ${shadow}.getElementById('result').textContent,
+      pending: globalThis.__pending['skyline.eims.pending'] || null,
+      realPasswordKept: right.querySelector('[name="esn_password"]').value,
+      status: right.getElementById('ID_TdEsnStatus').textContent
+    };
+  })()`);
 
   await evaluate(`${shadow}.querySelector('[data-module-id="save-reboot"]').click()`);
   const reboot = await evaluate(`(() => {
@@ -397,13 +483,36 @@ try {
   assert.equal(etmsResult.pending, null, 'ETMS 成功回读后应清除待回读记录');
   assert.equal(etmsResult.realPasswordKept, 'secret', '真实表单保持用户填写的内容，扩展不清除密码框');
   assert.match(etmsResult.result, /密码未保存/);
-  assert.deepEqual(navigation, { path: '/eims_settings_cn.html', homeVisible: true, active: true });
+  assert.deepEqual(eimsNavigation, { path: '/eims_settings_cn.html', active: true, moduleName: 'EIMS 注册' });
+  assert.equal(eimsAttached.workspaceVisible, true, 'EIMS 页面应进入独立工作区');
+  assert.match(eimsAttached.current, /NONE/, '工作区应如实显示真实表单的当前服务器类型');
+  assert.equal(eimsAttached.panelFormRemoved, true, '面板不再提供 EIMS 表单字段，全部直接在真实表单填写');
+  assert.match(eimsWrongType.result, /EIMS/);
+  assert.equal(eimsWrongType.previewHidden, true, '服务器类型不是 EIMS 时不得生成预览');
+  assert.match(eimsEmptyPassword.result, /请先在真实表单中填写 EIMS 密码/);
+  assert.equal(eimsEmptyPassword.previewHidden, true, '真实密码框为空时不得生成预览');
+  assert.match(eimsPreview.text, /eims\.example\.com/);
+  assert.match(eimsPreview.text, /eimsUser/);
+  assert.equal(eimsPreview.protocol, 'TCP');
+  assert.doesNotMatch(eimsPreview.text, /secret/, 'EIMS 预览不得显示密码');
+  assert.match(eimsPreview.passwordLabel, /已填写/);
+  assert.match(eimsAwaitingReboot.result, /保存并重启/);
+  assert.match(eimsAwaitingReboot.result, /5 秒后重读/, '等待保存重启期间应计划低频重读');
+  assert.notEqual(eimsAwaitingReboot.pending, null, '等待保存重启期间必须保留待回读记录');
+  assert.equal(eimsAwaitingReboot.pending.attempts, 1, '首次空状态回读后应已记录一次重读尝试');
+  assert.equal(eimsAwaitingReboot.step, '保存并重启');
+  assert.equal(eimsRebootGuide.submenuVisible, true, '第 5 步应展开真实保存重启菜单');
+  assert.match(eimsRebootGuide.message, /手动完成保存重启/);
+  assert.equal(eimsResult.status, 'OK');
+  assert.equal(eimsResult.pending, null, 'EIMS 成功回读后应清除待回读记录');
+  assert.equal(eimsResult.realPasswordKept, 'secret', '真实表单保持用户填写的内容，扩展不清除密码框');
+  assert.match(eimsResult.result, /不读取、不显示、不保存|密码未保存/);
   assert.equal(reboot.path, '/eims_settings_cn.html', 'Save/Reboot 指导不得自动导航或重启');
   assert.equal(reboot.submenuVisible, true, '应展开真实保存重启菜单');
   assert.match(reboot.badge, /^第 1 步 · .*Save and Reboot/);
   assert.match(reboot.message, /不会自动点击或自动重启/);
-  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsAsyncStatus, etmsEmptyPassword, etmsPreview, etmsResult, navigation, reboot, screenshot: screenshotPath }, null, 2));
-  console.log('PASS: 设备识别与手动切换、ETMS 真实表单直填注册指导/确认后代操作、全局操作、预览保护和保存重启仅定位均符合预期。');
+  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsAsyncStatus, etmsEmptyPassword, etmsPreview, etmsResult, eimsNavigation, eimsAttached, eimsWrongType, eimsEmptyPassword, eimsPreview, eimsAwaitingReboot, eimsRebootGuide, eimsResult, reboot, screenshot: screenshotPath }, null, 2));
+  console.log('PASS: 设备识别与手动切换、ETMS/EIMS 真实表单直填注册指导/确认后代操作、EIMS 保存重启等待与回读、全局操作、预览保护和保存重启仅定位均符合预期。');
 } finally {
   socket.close();
   await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);
