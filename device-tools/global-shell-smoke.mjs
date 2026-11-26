@@ -304,6 +304,10 @@ try {
     current: ${shadow}.getElementById('etms-current').textContent,
     password: ${shadow}.getElementById('etms-password').value
   }))()`);
+  // 设备页面异步刷新 ETMS 状态（readErmStatus），工作区应自动同步显示，无需重新附加
+  await evaluate(`document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument.getElementById('ID_TdErmStatus').textContent = 'OK'`);
+  await waitFor(`${shadow}.getElementById('etms-current').textContent.includes('状态 OK')`);
+  const etmsAsyncStatus = await evaluate(`${shadow}.getElementById('etms-current').textContent`);
   await evaluate(`${shadow}.getElementById('etms-password').value = 'secret'; ${shadow}.getElementById('etms-preview-button').click()`);
   await waitFor(`${shadow}.getElementById('etms-preview').hidden === false`);
   const etmsPreview = await evaluate(`(() => ({
@@ -365,6 +369,7 @@ try {
   assert.equal(etmsAttached.workspaceVisible, true, 'ETMS 页面应进入独立工作区');
   assert.match(etmsAttached.current, /ETMS · remote\.tyhtsf\.com:50000 · testeSIM/);
   assert.equal(etmsAttached.password, '', 'ETMS 工作区不得读取或回填页面密码');
+  assert.match(etmsAsyncStatus, /状态 OK/, '页面异步刷新 ETMS 状态后，工作区应自动同步显示，无需重新附加');
   assert.equal(etmsPreview.password, 'secret', '生成预览后密码应保留在面板密码框（仅内存、掩码），便于多次尝试');
   assert.doesNotMatch(etmsPreview.text, /secret/, 'ETMS 预览不得显示密码');
   assert.match(etmsPreview.text, /不显示、不保存/);
@@ -377,7 +382,7 @@ try {
   assert.equal(reboot.submenuVisible, true, '应展开真实保存重启菜单');
   assert.match(reboot.badge, /^第 1 步 · .*Save and Reboot/);
   assert.match(reboot.message, /不会自动点击或自动重启/);
-  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsPreview, etmsResult, navigation, reboot, screenshot: screenshotPath }, null, 2));
+  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsAsyncStatus, etmsPreview, etmsResult, navigation, reboot, screenshot: screenshotPath }, null, 2));
   console.log('PASS: 设备识别与手动切换、ETMS 独立注册指导/代操作、全局操作、预览保护和保存重启仅定位均符合预期。');
 } finally {
   socket.close();

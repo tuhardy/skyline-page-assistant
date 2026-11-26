@@ -133,7 +133,32 @@ try {
   const screenshot = await call('Page.captureScreenshot', { format: 'png' });
   await writeFile(new URL('./real-device-etms-check.png', import.meta.url), Buffer.from(screenshot.data, 'base64'));
 
-  console.log(JSON.stringify({ base, etmsState, events: events.slice(0, 20) }, null, 2));
+  // Leave to another module and come back: the workspace must re-attach and then
+  // keep syncing the page's asynchronously refreshed status (not stay blank/stale).
+  await evaluate(`
+    document.querySelector('#skyline-page-assistant-host').shadowRoot
+      .querySelector('[data-module-id="eims-settings"]').click();
+  `);
+  await sleep(3000);
+  await evaluate(`
+    document.querySelector('#skyline-page-assistant-host').shadowRoot
+      .querySelector('[data-module-id="etms-registration"]').click();
+  `);
+  let returnedState = null;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    returnedState = await evaluate(`(() => {
+      const shadow = document.querySelector('#skyline-page-assistant-host').shadowRoot;
+      return {
+        workspaceVisible: !shadow.getElementById('etms-workspace').hidden,
+        currentValue: shadow.getElementById('etms-current-value').textContent,
+        currentLine: shadow.getElementById('etms-current').textContent
+      };
+    })()`);
+    if (returnedState.workspaceVisible && /状态 (?!空\b)\S+/.test(returnedState.currentValue)) break;
+    await sleep(700);
+  }
+
+  console.log(JSON.stringify({ base, etmsState, returnedState, events: events.slice(0, 20) }, null, 2));
 } finally {
   socket.close();
   await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);

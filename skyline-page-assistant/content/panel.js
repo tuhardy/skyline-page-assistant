@@ -489,6 +489,14 @@
         : '当前：未读取到 ETMS 设备网管表单';
     }
 
+    // 页面自身会异步刷新 ETMS 状态（readErmStatus 轮询），工作区只同步显示，
+    // 不触碰表单字段、预览或计划，避免覆盖用户输入。
+    refreshEtmsCurrent(current) {
+      if (!this.etmsActive) return;
+      this.etmsCurrent = current || null;
+      this.updateEtmsCurrent();
+    }
+
     renderEtmsStepTabs() {
       const container = this.shadow.getElementById('etms-steps');
       container.replaceChildren();

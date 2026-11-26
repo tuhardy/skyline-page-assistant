@@ -27,6 +27,7 @@
   let etmsSubmitting = false;
   let etmsVerificationTimer = null;
   let etmsVerificationSequence = 0;
+  let etmsStatusRefreshAt = 0;
   let activeModule = null;
   let profilePreference = 'auto';
   let detectedProfile = 'unknown';
@@ -446,6 +447,17 @@
   function dispatchEtmsInput(control) {
     control.dispatchEvent(new pageWindow.Event('input', { bubbles: true }));
     control.dispatchEvent(new pageWindow.Event('change', { bubbles: true }));
+  }
+
+  // ETMS 状态由设备页面异步刷新（注册成功后再回到本页时，附加瞬间状态往往还没就绪），
+  // 工作区激活期间每秒同步一次当前状态行；只读页面、只更新显示，不触碰表单和预览。
+  function refreshEtmsStatus() {
+    if (etmsSubmitting || !pageDocument) return;
+    const now = Date.now();
+    if (now - etmsStatusRefreshAt < 1000) return;
+    etmsStatusRefreshAt = now;
+    const current = etms.readCurrent(pageDocument);
+    if (current) panel.refreshEtmsCurrent(current);
   }
 
   function fillEtmsPlan(plan) {
@@ -1018,6 +1030,8 @@
           if (pageDocument && activeModule && activeModule.id !== nextModuleId) detachPage();
           if (isImei) attachPage(targetDocument, targetWindow);
           else attachEtmsPage(targetDocument, targetWindow);
+        } else if (isEtms) {
+          refreshEtmsStatus();
         }
       } else {
         activeModule = moduleRegistry.matchLocation(targetWindow.location);
