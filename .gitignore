@@ -1,0 +1,16 @@
+# Local browser and device test artifacts
+*.pdf
+browser-profiles/
+device-pages/
+device-session*/
+device-tools/edge-global-profile/
+device-tools/*.png
+device-tools/api-reference.txt
+device-tools/login-real-device.mjs
+device-tools/read-device-page.ps1
+device-tools/inspect-device-capabilities.mjs
+
+# Local tooling
+.claude/
+node_modules/
+*.log
