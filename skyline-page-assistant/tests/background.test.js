@@ -144,3 +144,33 @@ test('device profile preference is isolated by real sender origin and limited to
   assert.equal(invalid.ok, false);
   assert.deepEqual(JSON.parse(JSON.stringify(background.data[key])), { 'http://192.0.2.1': 'sms' });
 });
+
+test('UI preferences keep at most four sanitized fan pins and a known language, isolated by origin', async () => {
+  const background = createBackground();
+  const key = 'skyline.ui.preferences';
+  const firstOrigin = { url: 'http://192.0.2.1/main_en.html' };
+  const secondOrigin = { url: 'http://192.0.2.2/main_en.html' };
+  const empty = await background.dispatch({ type: 'skyline.ui.get', key }, firstOrigin);
+  assert.equal(empty.ok, true);
+  assert.equal(empty.value, null);
+  const saved = await background.dispatch({
+    type: 'skyline.ui.set',
+    key,
+    value: { pinned: ['imei', 'eims-settings', 'imei', 'bad id!', 'a', 'b', 'c'], lang: 'en', extra: 'dropped' }
+  }, firstOrigin);
+  assert.equal(saved.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.value)), { pinned: ['imei', 'eims-settings', 'a', 'b'], lang: 'en' });
+  const first = await background.dispatch({ type: 'skyline.ui.get', key }, firstOrigin);
+  assert.deepEqual(JSON.parse(JSON.stringify(first.value)), { pinned: ['imei', 'eims-settings', 'a', 'b'], lang: 'en' });
+  const second = await background.dispatch({ type: 'skyline.ui.get', key }, secondOrigin);
+  assert.equal(second.value, null);
+  const oddLang = await background.dispatch({ type: 'skyline.ui.set', key, value: { pinned: [], lang: 'fr' } }, secondOrigin);
+  assert.equal(oddLang.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(oddLang.value)), { pinned: [], lang: 'auto' });
+  const invalid = await background.dispatch({ type: 'skyline.ui.set', key, value: 'nope' }, firstOrigin);
+  assert.equal(invalid.ok, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.data[key])), {
+    'http://192.0.2.1': { pinned: ['imei', 'eims-settings', 'a', 'b'], lang: 'en' },
+    'http://192.0.2.2': { pinned: [], lang: 'auto' }
+  });
+});

@@ -125,7 +125,7 @@ try {
         panelFormRemoved: shadow ? (!shadow.getElementById('etms-server') && !shadow.getElementById('etms-password')) : null
       };
     })()`);
-    if (etmsState.workspaceVisible && etmsState.currentValue && !/正在读取/.test(etmsState.currentValue)) break;
+    if (etmsState.workspaceVisible && etmsState.currentValue && !/正在读取|Reading/.test(etmsState.currentValue)) break;
     await sleep(700);
   }
 

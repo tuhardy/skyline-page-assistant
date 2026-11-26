@@ -454,7 +454,8 @@ try {
   assert.deepEqual(automaticVoice, { modules: 9, smsEntries: 3, voiceEntries: 4, status: '自动：语音设备（GoIP）' });
   assert.deepEqual(softwareFallback, { modules: 9, status: '自动：语音设备（516）' });
   assert.deepEqual(unknownFallback, {
-    ids: ['imei', 'etms-registration', 'eims-settings', 'sms-control', 'call-duration', 'call-count', 'talk-numbers', 'call-control', 'save-reboot'],
+    // 功能表按设备真实菜单位置分组（移动/短信/语音/系统设置），DOM 顺序为分组后的顺序
+    ids: ['imei', 'eims-settings', 'sms-control', 'call-duration', 'call-count', 'talk-numbers', 'call-control', 'etms-registration', 'save-reboot'],
     status: '自动：未识别'
   });
   assert.deepEqual(manualVoice, { modules: 9, status: '手动：语音设备', saved: 'voice' });

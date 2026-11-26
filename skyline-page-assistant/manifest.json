@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SKYLINE 真实页面助手",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "识别短信/语音设备并提供可切换功能包，在真实 SKYLINE 页面提供全局导航、IMEI/ETMS 指导、确认后修改和延迟回读。",
   "permissions": ["storage"],
   "background": {

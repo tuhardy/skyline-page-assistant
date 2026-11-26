@@ -155,7 +155,7 @@ try {
   let usedDirectNavigation = false;
   for (let attempt = 0; attempt < 30; attempt += 1) {
     eimsState = await evaluate(eimsStateExpression);
-    if (eimsState.workspaceVisible && eimsState.currentValue && !/正在读取/.test(eimsState.currentValue)) break;
+    if (eimsState.workspaceVisible && eimsState.currentValue && !/正在读取|Reading/.test(eimsState.currentValue)) break;
     if (attempt === 4 && !/eims_settings/.test(String(eimsState.rightFrame))) {
       usedDirectNavigation = await evaluate(navigateRightFrame('eims_settings_en.html'));
     }
@@ -184,7 +184,7 @@ try {
   }
   for (let attempt = 0; attempt < 30; attempt += 1) {
     returnedState = await evaluate(eimsStateExpression);
-    if (returnedState.workspaceVisible && returnedState.currentValue && !/正在读取/.test(returnedState.currentValue)) break;
+    if (returnedState.workspaceVisible && returnedState.currentValue && !/正在读取|Reading/.test(returnedState.currentValue)) break;
     await sleep(700);
   }
 

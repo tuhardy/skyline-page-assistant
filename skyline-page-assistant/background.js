@@ -3,6 +3,8 @@ const ETMS_PENDING_KEY = 'skyline.etms.pending';
 const EIMS_PENDING_KEY = 'skyline.eims.pending';
 const PROFILE_KEY = 'skyline.device-profile.preferences';
 const PROFILE_PREFERENCES = ['auto', 'sms', 'voice'];
+const UI_PREFS_KEY = 'skyline.ui.preferences';
+const UI_LANGS = ['auto', 'zh', 'en'];
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.id) return;
@@ -17,6 +19,16 @@ chrome.action.onClicked.addListener((tab) => {
 // Pending records never include ETMS/EIMS passwords; only non-secret readback facts are stored.
 // Keep preferences behind a fixed-key broker. The only accepted values are
 // auto/sms/voice; device credentials, menus and configuration are never stored.
+// UI preferences are equally narrow: fan pin ids and a language choice only.
+function sanitizeUiPrefs(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const pinned = Array.isArray(value.pinned)
+    ? [...new Set(value.pinned.filter((id) => typeof id === 'string' && /^[a-z0-9-]{1,40}$/i.test(id)))].slice(0, 4)
+    : [];
+  const lang = UI_LANGS.includes(value.lang) ? value.lang : 'auto';
+  return { pinned, lang };
+}
+
 function profileOrigin(sender) {
   const url = new URL(sender && sender.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('不支持的设备页面来源。');
@@ -40,6 +52,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         preferences[origin] = message.value;
         return chrome.storage.local.set({ [PROFILE_KEY]: preferences }).then(() => message.value);
+      });
+    } catch (error) {
+      operation = Promise.reject(error);
+    }
+  } else if (message.key === UI_PREFS_KEY && (message.type === 'skyline.ui.get' || message.type === 'skyline.ui.set')) {
+    try {
+      const origin = profileOrigin(sender);
+      operation = chrome.storage.local.get(UI_PREFS_KEY).then((items) => {
+        const saved = items[UI_PREFS_KEY];
+        const all = saved && typeof saved === 'object' && !Array.isArray(saved) ? { ...saved } : {};
+        if (message.type === 'skyline.ui.get') {
+          return sanitizeUiPrefs(all[origin]);
+        }
+        const prefs = sanitizeUiPrefs(message.value);
+        if (!prefs) throw new Error('无效的界面偏好。');
+        all[origin] = prefs;
+        return chrome.storage.local.set({ [UI_PREFS_KEY]: all }).then(() => prefs);
       });
     } catch (error) {
       operation = Promise.reject(error);

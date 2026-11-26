@@ -1,0 +1,502 @@
+<title>SKYLINE 助手整体 UI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  :root {
+    --bg: #F2F4F6;
+    --fg: #1B2430;
+    --dim: #5D6B7A;
+    --line: #DCE2E8;
+    --sans: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    /* 设备真实设计令牌(只借结构和颜色,不借宋体) */
+    --dv-page: #f9f9f9;
+    --dv-hdr: #3061AC;
+    --dv-menu: #2b579a;
+    --dv-title: #2b579a;
+    --dv-boxline: #5480c3;
+    --dv-cellline: #0157a4;
+    --dv-cellbg: #f8f8f8;
+    --dv-inputline: #7491b5;
+    --dv-font: Arial, "宋体", sans-serif;
+    /* 助手自身用现代字体 */
+    --ui-font: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181D; --fg: #DBE2EA; --dim: #8B98A6; --line: #2B333C;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181D; --fg: #DBE2EA; --dim: #8B98A6; --line: #2B333C;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 26px;
+  }
+  .wrap { max-width: 1240px; margin-left: auto; margin-right: auto; }
+  .page-head { margin-bottom: 18px; }
+  .page-head h1 { margin: 0 0 6px; font-size: 20px; }
+  .page-head p { margin: 0; max-width: 86ch; color: var(--dim); font-size: 12.5px; }
+  .hint { display: inline-flex; flex-wrap: wrap; gap: 14px; margin: 0 2px 10px; color: var(--dim); font-size: 12px; }
+  .hint b { color: var(--fg); font-weight: 600; }
+  .spec { margin: 12px 2px 0; padding: 0; list-style: none; color: var(--dim); font-size: 11.5px; display: flex; flex-direction: column; gap: 3px; }
+  .spec li::before { content: "·"; margin-right: 6px; }
+  .page-foot { margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11px; max-width: 110ch; }
+
+  /* ===== 高保真设备页面(设备自己的内容仍是 Arial/宋体) ===== */
+  .stage { position: relative; overflow: hidden; height: 690px; border: 1px solid var(--line); border-radius: 8px; background: var(--dv-page); font-family: var(--dv-font); font-size: 12px; color: #000; }
+  .dv { display: flex; height: 100%; }
+  .dv-menu { width: 92px; flex: none; padding: 8px 0; background: var(--dv-menu); color: #fff; }
+  .dv-menu .logo { padding: 2px 10px 10px; font-size: 12px; font-weight: 800; font-style: italic; }
+  .dv-menu .hdr { display: block; padding: 3px 8px 3px 18px; font-size: 13px; font-weight: 600; }
+  .dv-menu .sub { display: block; padding: 2px 8px 2px 30px; color: #fff; font-size: 12px; font-style: italic; }
+  .dv-menu .sub.current { font-weight: bold; background: rgba(255, 255, 255, .14); }
+  .dv-main { flex: 1; min-width: 0; padding: 0 0 20px; }
+  .dv-nav { height: 28px; line-height: 28px; margin: 0 0 16px 10px; border-bottom: 1px solid var(--dv-boxline); color: var(--dv-title); font-size: 13px; }
+  .dv-body { padding: 0 24px; }
+  .dv-infobox { max-width: 560px; }
+  .dv-ib-hdr { height: 24px; line-height: 24px; padding-left: 8px; border-radius: 4px 4px 0 0; background: var(--dv-hdr); color: #fff; font-size: 13px; font-weight: 600; }
+  .dv-ib-hdr .cls { float: right; padding: 0 10px; color: #fff; font-weight: 600; cursor: pointer; }
+  .dv-ib-body { position: relative; padding: 18px 10px 34px; border: 1px solid var(--dv-boxline); border-top: none; background: var(--dv-page); }
+  .dv-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .dv-table td { height: 24px; line-height: 24px; border: 1px solid var(--dv-cellline); background: var(--dv-cellbg); vertical-align: middle; word-wrap: break-word; }
+  .dv-table .lb { width: 96px; padding-left: 6px; }
+  .dv-table .vl { padding-left: 4px; }
+  .dv-table .tp { border: none; background: transparent; padding-left: 5px; color: blue; }
+  .dv-input { width: 147px; height: 20px; border: 1px solid var(--dv-inputline); background: #fff; font-family: var(--dv-font); font-size: 12px; }
+  .dv-select { width: 149px; height: 22px; border: 1px solid var(--dv-inputline); background: #fff; font-family: var(--dv-font); font-size: 12px; }
+  .dv-btns { position: absolute; right: 2px; bottom: 2px; }
+  .dv-btn, .nt-btn { height: 21px; padding: 0 10px; border: 1px solid #9aa5b1; border-radius: 2px; background: linear-gradient(#fdfdfd, #dfe3e8); color: #222; font-family: var(--ui-font); font-size: 12px; cursor: pointer; }
+  .nt-btn.blue { border-color: #274f8d; background: linear-gradient(#3a6cba, #2b57a0); color: #fff; }
+
+  /* ===== 扇形启动器(固定 4 项 + 更多) ===== */
+  .fab-zone { position: absolute; right: 26px; bottom: 26px; width: 52px; height: 52px; z-index: 5; }
+  .fab { position: absolute; inset: 0; z-index: 2; width: 52px; height: 52px; border: 2px solid #1e406f; border-radius: 50%; background: var(--dv-menu); color: #fff; font-family: var(--dv-font); font-size: 8.5px; font-weight: 800; font-style: italic; letter-spacing: .06em; cursor: pointer; box-shadow: 0 2px 10px rgba(20, 50, 90, .35); transition: transform .18s ease; }
+  .fab:hover { transform: scale(1.06); }
+  .fab .active-dot { position: absolute; top: -2px; right: -2px; width: 11px; height: 11px; border: 2px solid #fff; border-radius: 50%; background: #2f9e63; display: none; }
+  .fab-zone.has-active .fab .active-dot { display: block; }
+  .fan-item { position: absolute; left: 6px; top: 6px; z-index: 1; width: 40px; height: 40px; border: 1.5px solid var(--dv-menu); border-radius: 50%; background: #fff; color: var(--dv-menu); font-family: var(--ui-font); font-size: 11px; font-weight: 600; cursor: pointer; opacity: 0; transform: translate(0, 0) scale(.3); transition: transform .22s cubic-bezier(.2, .9, .3, 1.2), opacity .18s ease, box-shadow .15s ease; pointer-events: none; }
+  .fab-zone.en .fan-item { font-size: 9.5px; }
+  .fan-item:hover { box-shadow: 0 3px 10px rgba(20, 50, 90, .3); }
+  .fan-item.utility { border-style: dashed; font-weight: 400; }
+  .fab-zone.open .fan-item { opacity: 1; transform: translate(var(--fx), var(--fy)) scale(1); pointer-events: auto; }
+  .fab-zone.open .fan-item:hover { transform: translate(var(--fx), var(--fy)) scale(1.16); }
+  @media (prefers-reduced-motion: reduce) {
+    .fab, .fan-item { transition: none; }
+  }
+  /* 详情卡:固定在扇形弧正上方,z-index 高于扇形 */
+  .fan-card { position: absolute; right: 26px; bottom: 216px; z-index: 6; width: 224px; display: none; font-family: var(--ui-font); }
+  .fan-card.show { display: block; }
+  .fan-card .dv-ib-hdr { font-size: 12.5px; font-family: var(--ui-font); }
+  .fan-card .fc-body { padding: 8px 10px; border: 1px solid var(--dv-boxline); border-top: none; background: #fff; }
+  .fan-card .fc-desc { margin: 0 0 5px; font-size: 12px; line-height: 1.5; color: #333; }
+  .fan-card .fc-cap { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 2px; border: 1px solid #9cc7ab; background: #e9f5ec; color: #1c5c34; }
+
+  /* ===== D 皮肤工作区 ===== */
+  .ws { position: absolute; top: 46px; right: 16px; z-index: 3; width: 320px; display: none; font-family: var(--ui-font); font-size: 12.5px; }
+  .ws.show { display: block; }
+  .ws .ws-hdr { display: flex; align-items: center; justify-content: space-between; padding-right: 4px; }
+  .ws .ws-hdr .ttl { padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-hright { display: flex; align-items: center; gap: 2px; flex: none; }
+  .ws-lang { font-size: 11px; }
+  .ws-lang a { color: #c8dcf4; cursor: pointer; text-decoration: none; padding: 0 2px; }
+  .ws-lang a.on { color: #fff; font-weight: 700; text-decoration: underline; }
+  .ws-lang i { color: #7f9cc9; font-style: normal; }
+  .ws .cls { padding: 0 8px; color: #fff; font-weight: 600; cursor: pointer; }
+  .ws .dv-ib-body { padding: 10px; max-height: 584px; overflow-y: auto; background: var(--dv-page); }
+  .d-steps { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 8px; }
+  .d-steps td { height: 22px; line-height: 22px; border: 1px solid #b9cbe4; background: #fff; font-size: 12px; }
+  .d-steps .no { width: 30px; text-align: center; color: var(--dv-title); }
+  .d-steps tr.current td { background: #dbe7f7; font-weight: 600; color: var(--dv-title); }
+  .d-guide { margin: 0 0 8px; }
+  .d-guide .cnt { color: var(--dv-title); font-size: 11.5px; font-weight: 600; }
+  .d-guide h3 { margin: 2px 0; font-size: 13.5px; }
+  .d-guide p { margin: 0 0 6px; color: #444; font-size: 12px; line-height: 1.5; }
+  .d-cur { margin: 0 0 8px; padding: 5px 8px; border: 1px solid var(--dv-boxline); background: #fff; font-size: 12px; }
+  .d-cur .lb { color: var(--dv-title); font-weight: 600; }
+  .d-pv { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 6px; }
+  .d-pv td { height: 23px; line-height: 23px; border: 1px solid #b9cbe4; background: #fff; font-size: 12px; }
+  .d-pv .lb { width: 82px; padding-left: 6px; color: #55677c; }
+  .d-pv .vl { padding-left: 4px; }
+  .d-note { margin: 0 0 8px; color: blue; font-size: 11.5px; line-height: 1.5; }
+  .d-actions { display: flex; justify-content: flex-end; gap: 6px; }
+
+  /* 功能表:搜索 + 菜单镜像分组 + 行尾"添加到扇形" */
+  .d-type { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; padding: 5px 8px; border: 1px solid var(--dv-boxline); background: #fff; font-size: 12px; }
+  .d-type .lb { color: var(--dv-title); font-weight: 600; flex: none; }
+  .d-type select { flex: none; width: 68px; height: 20px; border: 1px solid var(--dv-inputline); background: #fff; font-family: var(--ui-font); font-size: 12px; }
+  .d-type .auto { color: blue; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .d-search { margin: 0 0 6px; }
+  .d-search input { width: 100%; height: 24px; padding: 0 8px; border: 1px solid var(--dv-inputline); background: #fff; font-family: var(--ui-font); font-size: 12px; box-sizing: border-box; }
+  .d-search input:focus { outline: 1px solid #2b579a; }
+  .d-notice { margin: 0 0 8px; padding: 4px 8px; border: 1px solid #dcc288; background: #faf3e0; color: #7a5b16; font-size: 11.5px; }
+  .d-nomatch { padding: 10px 8px; border: 1px dashed #b9cbe4; background: #fff; color: #6b7a89; font-size: 12px; text-align: center; }
+  .d-grp { margin-bottom: 8px; }
+  .d-grp-h { display: flex; justify-content: space-between; align-items: baseline; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 3px 3px 0 0; background: var(--dv-hdr); color: #fff; font-size: 11.5px; font-weight: 600; }
+  .d-grp-h .cnt { font-weight: 400; font-size: 10.5px; color: #c8dcf4; }
+  .d-grp-b { border: 1px solid var(--dv-boxline); border-top: none; background: #fff; }
+  .d-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; border-top: 1px solid #dce6f2; cursor: pointer; }
+  .d-row:first-child { border-top: none; }
+  .d-row:hover { background: #eef4fb; }
+  .d-row .tx { flex: 1; min-width: 0; }
+  .d-row .nm { display: block; font-size: 12.5px; font-weight: 600; color: #1f3f6e; }
+  .d-row .ds { display: block; font-size: 11px; color: #6b7a89; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .d-row .path { color: #2b579a; }
+  .d-tag { flex: none; font-size: 10.5px; padding: 1px 6px; border-radius: 2px; border: 1px solid; }
+  .d-tag.act { color: #1c5c34; border-color: #9cc7ab; background: #e9f5ec; }
+  .d-tag.nav { color: #5d6b7a; border-color: #c3ccd5; background: #f2f5f8; }
+  .d-tag.loc { color: #7a5b16; border-color: #dcc288; background: #faf3e0; }
+  .d-add { flex: none; width: 20px; height: 20px; padding: 0; border: 1.2px solid var(--dv-menu); border-radius: 50%; background: #fff; color: var(--dv-menu); font-family: var(--ui-font); font-size: 13px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .d-add:hover { transform: scale(1.12); }
+  .d-add.pinned { background: var(--dv-menu); color: #fff; }
+</style>
+
+<div class="wrap">
+<header class="page-head">
+  <h1>SKYLINE 页面助手 · 整体 UI</h1>
+  <p>定稿整合:右下角圆形扇形启动器(固定 4 项 + 更多)→ D 皮肤工作区;功能表 = 甲(按设备真实菜单位置分组、每行带路径)+ 丁(顶部搜索框,实时过滤);每行行尾「＋」把功能添加进自定义扇形(最多 4 项,再点移除);「规划中」占位已全部去掉;头部「中 | EN」切换语言。</p>
+</header>
+
+<p class="hint"><span><b>①</b> 点右下角圆形</span><span><b>②</b> 悬停选项看详情卡</span><span><b>③</b> 点「更多」开功能表</span><span><b>④</b> 行尾 ＋ 添加进扇形(再点移除)</span><span><b>⑤</b> 搜索框输入"注册"试试</span><span><b>⑥</b> 头部「中 | EN」切语言</span></p>
+
+<div class="stage" id="stage">
+  <div class="dv">
+    <div class="dv-menu">
+      <div class="logo">SKYLINE</div>
+      <span class="hdr">短信统计</span>
+      <span class="hdr">短信设置</span>
+      <span class="sub">端口设置</span>
+      <span class="sub current">EIMS 设置</span>
+      <span class="sub">短信控制</span>
+      <span class="hdr">系统设置</span>
+      <span class="sub">保存重启</span>
+    </div>
+    <div class="dv-main">
+      <div class="dv-nav">当前路径:短信设置→EIMS 设置</div>
+      <div class="dv-body">
+        <div class="dv-infobox">
+          <div class="dv-ib-hdr">基本设置<span class="cls">－</span></div>
+          <div class="dv-ib-body">
+            <table class="dv-table">
+              <tr><td class="lb">服务器类型:</td><td class="vl"><select class="dv-select"><option>EIMS</option></select></td><td class="tp"></td></tr>
+              <tr><td class="lb">服务器地址:</td><td class="vl"><input class="dv-input" value="eims.example.com"></td><td class="tp">* 如要指定端口,请加端口</td></tr>
+              <tr><td class="lb">UDP/TCP:</td><td class="vl"><select class="dv-select"><option>TCP</option></select></td><td class="tp"></td></tr>
+              <tr><td class="lb">用户名:</td><td class="vl"><input class="dv-input" value="eimsUser"></td><td class="tp"></td></tr>
+              <tr><td class="lb">密码:</td><td class="vl"><input class="dv-input" type="password" value="secret"></td><td class="tp"></td></tr>
+              <tr><td class="lb">注册状态:</td><td class="vl"></td><td class="tp"></td></tr>
+            </table>
+            <div class="dv-btns"><button class="dv-btn">Submit</button> <button class="dv-btn">Reset</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D 皮肤工作区 -->
+  <div class="ws" id="ws">
+    <div class="dv-ib-hdr ws-hdr">
+      <span class="ttl" id="ws-title">EIMS 注册指导</span>
+      <span class="ws-hright">
+        <span class="ws-lang"><a id="lang-zh" class="on">中</a><i>|</i><a id="lang-en">EN</a></span>
+        <span class="cls" id="ws-close">－</span>
+      </span>
+    </div>
+    <div class="dv-ib-body" id="ws-body"></div>
+  </div>
+
+  <!-- 固定详情卡(扇形弧上方,不被遮挡) -->
+  <div class="fan-card" id="fan-card">
+    <div class="dv-ib-hdr" id="fc-name">EIMS 注册</div>
+    <div class="fc-body"><p class="fc-desc" id="fc-desc"></p><span class="fc-cap" id="fc-cap"></span></div>
+  </div>
+
+  <!-- 扇形启动器 -->
+  <div class="fab-zone" id="fab-zone">
+    <button class="fab" id="fab" type="button" aria-label="打开助手功能扇形">SKYLINE<span class="active-dot"></span></button>
+  </div>
+</div>
+
+<ul class="spec">
+  <li>扇形 = 你固定的 4 项(默认 IMEI/ETMS/EIMS/重启)+ 更多;槽位管理在功能表行尾:＋ 添加、✓ 再点移除,满 4 项时出提示</li>
+  <li>功能表 = 甲 + 丁:按设备真实菜单位置分组(移动/短信/语音/系统设置),每行第二行显示真实路径;顶部搜索框实时过滤,空组自动隐藏</li>
+  <li>「规划中」占位全部去掉——以后设备 API / USSD / AT 命令做成真实模块时,按甲的规则落进自己的菜单组(USSD 落语音设置→USSD Setting)</li>
+  <li>详情卡固定在扇形弧正上方(right:26 / bottom:216,z-index 高于扇形),任何选项悬停都不遮字</li>
+  <li>头部「中 | EN」:真实实现默认跟随设备页面语言(main_cn → 中文,main_en → English),手动切换存本地偏好;助手自身 Segoe UI / 微软雅黑 UI</li>
+</ul>
+
+<footer class="page-foot">
+  落地方式:扇形启动器替代现在的功能列表页(module-home);固定槽位、语言偏好、设备类型偏好存 chrome.storage 固定键,走 background 既有白名单代理(新增 skyline.ui.prefs 一键);点击扇形项/功能表行 = 现在的模块点击(真实左菜单导航 + 附加工作区),controller 逻辑不变;行尾添加/移除只改槽位偏好,不触碰设备。Esc / 再点圆形收起扇形;prefers-reduced-motion 时取消展开动画;功能表超高自动滚动。
+</footer>
+</div>
+
+<script>
+  /* ===== i18n ===== */
+  const I18N = {
+    zh: {
+      fabOpen: 'SKYLINE', fabClose: '收起',
+      wsGuideSuffix: '指导', wsHomeTitle: '功能导航',
+      stepCount: (i, n) => `第 ${i} 步,共 ${n} 步`,
+      steps: [
+        ['确认 EIMS 区块', '只在"基本设置"的 EIMS 注册区块操作。'],
+        ['选择 EIMS', '服务器类型必须选为 EIMS;NONE/EMDA 不能生成预览。'],
+        ['填写注册信息', '在真实表单填写服务器、UDP/TCP、用户名和密码;密码不进入扩展。'],
+        ['预览并提交', '核对预览后确认,助手代点真实 Submit。'],
+        ['保存并重启', '只定位真实 Save and Reboot 菜单,手动完成保存重启。'],
+        ['回读注册状态', '状态回读为 OK 才判定成功。']
+      ],
+      curLabel: '当前:', curValue: 'NONE · — · TCP · — · 状态 空',
+      pv: [['类型', 'EIMS'], ['服务器', 'eims.example.com'], ['UDP/TCP', 'TCP'], ['用户名', 'eimsUser'], ['密码', '已填写(不读取、不显示)']],
+      pvNote: '* 提交后必须保存并重启设备,注册状态才会显示。',
+      confirm: '确认并提交', cancel: '取消预览',
+      typeLabel: '设备类型', typeOpts: ['自动', '短信', '语音'], typeAuto: '自动:语音设备(GoIP)',
+      searchPh: '搜索功能…', noMatch: '没有匹配的功能',
+      addTitle: '添加到扇形', removeTitle: '从扇形移除',
+      fanFull: '扇形最多 4 项:先在功能表移除一个,再添加。',
+      homeNote: '* 行尾 ＋ 把功能固定到右下扇形;仅 IMEI/ETMS/EIMS 在确认后代操作。',
+      tags: { act: '代操作', nav: '仅导航', loc: '仅定位' },
+      caps: { act: '确认后代操作', nav: '仅导航', loc: '仅定位菜单' },
+      groups: { mobile: '移动设置', sms: '短信设置', voice: '语音设置', sys: '系统设置' },
+      modules: {
+        imei:   { label: 'IMEI', name: 'IMEI 修改', path: '移动设置 → Mobile Setting', desc: '单个/批量修改端口 IMEI,预览后确认提交。' },
+        eims:   { label: 'EIMS', name: 'EIMS 注册', path: '短信设置 → EIMS 设置', desc: 'EIMS 注册:提交后须保存重启才显示状态。' },
+        smsctl: { label: 'SMS', name: 'SMS 控制', path: '短信设置 → SMS 控制', desc: '短信开关与参数,打开真实页面操作。' },
+        dur:    { label: '时长', name: '通话时长', path: 'Call Duration Limit', desc: '按时长限制呼叫。' },
+        times:  { label: '次数', name: '呼叫次数', path: 'Call Num Control', desc: '按次数限制呼叫。' },
+        nums:   { label: '号码', name: '通话号码', path: 'Talk Number Settings', desc: '号码名单。' },
+        callctl:{ label: '呼叫', name: '呼叫控制', path: 'Call Ctrl Settings', desc: '呼叫行为控制。' },
+        etms:   { label: 'ETMS', name: 'ETMS 注册', path: '系统设置 → User & Device', desc: '设备网管注册:真实表单直填,状态 OK 回读。' },
+        reboot: { label: '重启', name: '保存/重启', path: '系统设置 → Save and Reboot', desc: '只展开并定位真实菜单,绝不自动执行。' }
+      },
+      more: { label: '更多', name: '全部功能', desc: '打开完整功能表:可搜索,行尾 ＋ 添加到扇形。', cap: '功能表' }
+    },
+    en: {
+      fabOpen: 'SKYLINE', fabClose: 'Close',
+      wsGuideSuffix: ' Guide', wsHomeTitle: 'Modules',
+      stepCount: (i, n) => `Step ${i} of ${n}`,
+      steps: [
+        ['Confirm EIMS block', 'Work only in the EIMS block under Basic Settings.'],
+        ['Select EIMS', 'Server type must be EIMS; NONE/EMDA cannot be previewed.'],
+        ['Fill registration', 'Fill server, UDP/TCP, username and password in the real form; the password never enters the extension.'],
+        ['Preview & submit', 'Check the preview, confirm, and the assistant clicks the real Submit.'],
+        ['Save & reboot', 'Only locates the real Save and Reboot menu; save and reboot manually.'],
+        ['Read back status', 'Success only when the status reads back OK.']
+      ],
+      curLabel: 'Current: ', curValue: 'NONE · — · TCP · — · Status empty',
+      pv: [['Type', 'EIMS'], ['Server', 'eims.example.com'], ['UDP/TCP', 'TCP'], ['Username', 'eimsUser'], ['Password', 'Filled (never read or shown)']],
+      pvNote: '* Status appears only after save & reboot.',
+      confirm: 'Confirm & Submit', cancel: 'Cancel preview',
+      typeLabel: 'Device type', typeOpts: ['Auto', 'SMS', 'Voice'], typeAuto: 'Auto: Voice (GoIP)',
+      searchPh: 'Search modules…', noMatch: 'No matching modules',
+      addTitle: 'Pin to fan', removeTitle: 'Remove from fan',
+      fanFull: 'Fan holds up to 4: remove one in the list first.',
+      homeNote: '* ＋ pins a module to the corner fan; only IMEI/ETMS/EIMS act after confirmation.',
+      tags: { act: 'Assisted', nav: 'Navigate', loc: 'Locate' },
+      caps: { act: 'Assisted after confirm', nav: 'Navigate only', loc: 'Locate only' },
+      groups: { mobile: 'Mobile Setting', sms: 'SMS Settings', voice: 'Voice Settings', sys: 'System Settings' },
+      modules: {
+        imei:   { label: 'IMEI', name: 'IMEI Change', path: 'Mobile Setting', desc: 'Change port IMEIs one by one or in batch, with preview.' },
+        eims:   { label: 'EIMS', name: 'EIMS Registration', path: 'SMS Settings → EIMS Settings', desc: 'Status appears only after save & reboot.' },
+        smsctl: { label: 'SMS', name: 'SMS Control', path: 'SMS Settings → SMS Control', desc: 'SMS switches and parameters.' },
+        dur:    { label: 'Time', name: 'Call Duration', path: 'Call Duration Limit', desc: 'Limit calls by duration.' },
+        times:  { label: 'Count', name: 'Call Times', path: 'Call Num Control', desc: 'Limit calls by count.' },
+        nums:   { label: 'Number', name: 'Call Numbers', path: 'Talk Number Settings', desc: 'Number lists.' },
+        callctl:{ label: 'Call', name: 'Call Control', path: 'Call Ctrl Settings', desc: 'Call behavior control.' },
+        etms:   { label: 'ETMS', name: 'ETMS Registration', path: 'System Settings → User & Device', desc: 'EMS registration via the real form, status read back as OK.' },
+        reboot: { label: 'Reboot', name: 'Save / Reboot', path: 'System Settings → Save and Reboot', desc: 'Locate only, never auto-run.' }
+      },
+      more: { label: 'More', name: 'All Modules', desc: 'Full searchable list; ＋ pins to the fan.', cap: 'Module list' }
+    }
+  };
+
+  /* 菜单镜像分组(两种语言共用) */
+  const GROUPS = [
+    { id: 'mobile', rows: [{ m: 'imei', tag: 'act' }] },
+    { id: 'sms',    rows: [{ m: 'eims', tag: 'act' }, { m: 'smsctl', tag: 'nav' }] },
+    { id: 'voice',  rows: [{ m: 'dur', tag: 'nav' }, { m: 'times', tag: 'nav' }, { m: 'nums', tag: 'nav' }, { m: 'callctl', tag: 'nav' }] },
+    { id: 'sys',    rows: [{ m: 'etms', tag: 'act' }, { m: 'reboot', tag: 'loc' }] }
+  ];
+  const TAG_OF = {};
+  GROUPS.forEach((g) => g.rows.forEach((r) => { TAG_OF[r.m] = r.tag; }));
+
+  let lang = 'zh';
+  let pinned = ['imei', 'etms', 'eims', 'reboot'];
+  let wsView = null;      /* 'steps' | 'home' */
+  let wsModule = 'eims';
+  let lastQuery = '';
+  let noticeTimer = null;
+
+  const zone = document.getElementById('fab-zone');
+  const fab = document.getElementById('fab');
+  const card = document.getElementById('fan-card');
+  const ws = document.getElementById('ws');
+  const wsTitle = document.getElementById('ws-title');
+  const wsBody = document.getElementById('ws-body');
+  const R = 138;
+
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  /* ===== 扇形:固定项 + 更多 ===== */
+  function renderFan() {
+    const T = I18N[lang];
+    zone.querySelectorAll('.fan-item').forEach((b) => b.remove());
+    const items = [...pinned, 'more'];
+    const n = items.length;
+    items.forEach((id, index) => {
+      const deg = n === 1 ? 136 : 100 + index * (72 / (n - 1));
+      const rad = deg * Math.PI / 180;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fan-item' + (id === 'more' ? ' utility' : '');
+      btn.textContent = id === 'more' ? T.more.label : T.modules[id].label;
+      btn.style.transitionDelay = (index * 28) + 'ms';
+      btn.style.setProperty('--fx', (R * Math.cos(rad) - 6).toFixed(1) + 'px');
+      btn.style.setProperty('--fy', (-R * Math.sin(rad) - 6).toFixed(1) + 'px');
+      btn.addEventListener('mouseenter', () => {
+        const name = id === 'more' ? T.more.name : T.modules[id].name;
+        const desc = id === 'more' ? T.more.desc : T.modules[id].desc;
+        const cap = id === 'more' ? T.more.cap : T.caps[TAG_OF[id]];
+        document.getElementById('fc-name').textContent = name;
+        document.getElementById('fc-desc').textContent = desc;
+        document.getElementById('fc-cap').textContent = cap;
+        card.classList.add('show');
+      });
+      btn.addEventListener('mouseleave', () => card.classList.remove('show'));
+      btn.addEventListener('click', () => {
+        closeFan();
+        if (id === 'more') openWs('home');
+        else openWs('steps', id);
+      });
+      zone.appendChild(btn);
+    });
+    zone.classList.toggle('en', lang === 'en');
+    fab.firstChild.textContent = zone.classList.contains('open') ? T.fabClose : T.fabOpen;
+  }
+  function openFan() { zone.classList.add('open'); fab.firstChild.textContent = I18N[lang].fabClose; }
+  function closeFan() { zone.classList.remove('open'); card.classList.remove('show'); fab.firstChild.textContent = I18N[lang].fabOpen; }
+  fab.addEventListener('click', () => zone.classList.contains('open') ? closeFan() : openFan());
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFan(); });
+
+  /* ===== 槽位:添加到扇形 / 移除 ===== */
+  function togglePin(id) {
+    if (pinned.includes(id)) {
+      pinned = pinned.filter((x) => x !== id);
+      hideNotice();
+    } else {
+      if (pinned.length >= 4) { showNotice(I18N[lang].fanFull); return; }
+      pinned = [...pinned, id];
+      hideNotice();
+    }
+    renderFan();
+    refreshAddButtons();
+  }
+  function refreshAddButtons() {
+    const T = I18N[lang];
+    wsBody.querySelectorAll('.d-add').forEach((btn) => {
+      const on = pinned.includes(btn.dataset.m);
+      btn.classList.toggle('pinned', on);
+      btn.textContent = on ? '✓' : '＋';
+      btn.title = on ? T.removeTitle : T.addTitle;
+    });
+  }
+  function showNotice(text) {
+    const el = document.getElementById('d-notice');
+    if (!el) return;
+    el.textContent = text;
+    el.hidden = false;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(hideNotice, 2600);
+  }
+  function hideNotice() {
+    const el = document.getElementById('d-notice');
+    if (el) el.hidden = true;
+  }
+
+  /* ===== 工作区 ===== */
+  function openWs(view, moduleId) {
+    wsView = view;
+    if (moduleId) wsModule = moduleId;
+    renderWs();
+    ws.classList.add('show');
+    zone.classList.add('has-active');
+  }
+  function renderWs() {
+    const T = I18N[lang];
+    if (wsView === 'home') {
+      wsTitle.textContent = T.wsHomeTitle;
+      wsBody.innerHTML =
+        `<div class="d-type"><span class="lb">${esc(T.typeLabel)}</span>` +
+        `<select>${T.typeOpts.map((o) => `<option>${esc(o)}</option>`).join('')}</select>` +
+        `<span class="auto">${esc(T.typeAuto)}</span></div>` +
+        `<div class="d-search"><input id="d-q" type="search" placeholder="${esc(T.searchPh)}"></div>` +
+        `<div class="d-notice" id="d-notice" hidden></div>` +
+        GROUPS.map((g) => {
+          const rows = g.rows.map((r) => {
+            const m = T.modules[r.m];
+            const k = (m.name + ' ' + m.path + ' ' + m.label).toLowerCase();
+            return `<div class="d-row" data-m="${r.m}" data-k="${esc(k)}"><span class="tx"><span class="nm">${esc(m.name)}</span><span class="ds"><span class="path">${esc(m.path)}</span></span></span><span class="d-tag ${r.tag}">${esc(T.tags[r.tag])}</span><button type="button" class="d-add" data-m="${r.m}">＋</button></div>`;
+          }).join('');
+          return `<div class="d-grp"><div class="d-grp-h"><span>${esc(T.groups[g.id])}</span><span class="cnt">${g.rows.length}</span></div><div class="d-grp-b">${rows}</div></div>`;
+        }).join('') +
+        `<div class="d-nomatch" id="d-nomatch" hidden>${esc(T.noMatch)}</div>` +
+        `<p class="d-note">${esc(T.homeNote)}</p>`;
+      wsBody.querySelectorAll('.d-row').forEach((row) => {
+        row.addEventListener('click', () => openWs('steps', row.dataset.m));
+      });
+      wsBody.querySelectorAll('.d-add').forEach((btn) => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); togglePin(btn.dataset.m); });
+      });
+      const q = document.getElementById('d-q');
+      q.value = lastQuery;
+      q.addEventListener('input', () => { lastQuery = q.value; applyFilter(); });
+      refreshAddButtons();
+      applyFilter();
+    } else {
+      wsTitle.textContent = T.modules[wsModule].name + T.wsGuideSuffix;
+      wsBody.innerHTML =
+        `<table class="d-steps">${T.steps.map((s, i) =>
+          `<tr${i === 0 ? ' class="current"' : ''}><td class="no">${i + 1}</td><td>${esc(s[0])}</td></tr>`).join('')}</table>` +
+        `<div class="d-guide"><span class="cnt">${esc(T.stepCount(1, 6))}</span><h3>${esc(T.steps[0][0])}</h3><p>${esc(T.steps[0][1])}</p></div>` +
+        `<div class="d-cur"><span class="lb">${esc(T.curLabel)}</span>${esc(T.curValue)}</div>` +
+        `<table class="d-pv">${T.pv.map((r) => `<tr><td class="lb">${esc(r[0])}</td><td class="vl">${esc(r[1])}</td></tr>`).join('')}</table>` +
+        `<p class="d-note">${esc(T.pvNote)}</p>` +
+        `<div class="d-actions"><button class="nt-btn blue">${esc(T.confirm)}</button><button class="nt-btn">${esc(T.cancel)}</button></div>`;
+    }
+  }
+  function applyFilter() {
+    const needle = lastQuery.trim().toLowerCase();
+    let anyVisible = false;
+    wsBody.querySelectorAll('.d-grp').forEach((grp) => {
+      let visible = 0;
+      grp.querySelectorAll('.d-row').forEach((row) => {
+        const hit = !needle || row.dataset.k.includes(needle);
+        row.style.display = hit ? '' : 'none';
+        if (hit) visible += 1;
+      });
+      grp.style.display = visible ? '' : 'none';
+      if (visible) anyVisible = true;
+    });
+    const nm = document.getElementById('d-nomatch');
+    if (nm) nm.hidden = anyVisible;
+  }
+  document.getElementById('ws-close').addEventListener('click', () => { ws.classList.remove('show'); zone.classList.remove('has-active'); });
+
+  /* ===== 语言切换 ===== */
+  const langZh = document.getElementById('lang-zh');
+  const langEn = document.getElementById('lang-en');
+  function setLang(next) {
+    lang = next;
+    langZh.classList.toggle('on', lang === 'zh');
+    langEn.classList.toggle('on', lang === 'en');
+    renderFan();
+    if (wsView) renderWs();
+  }
+  langZh.addEventListener('click', () => setLang('zh'));
+  langEn.addEventListener('click', () => setLang('en'));
+
+  renderFan();
+</script>
