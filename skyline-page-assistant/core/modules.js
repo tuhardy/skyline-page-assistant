@@ -16,7 +16,7 @@
     {
       id: 'etms-registration',
       name: 'ETMS 注册',
-      capability: 'navigation',
+      capability: 'operation',
       family: 'sms',
       pages: ['user_management_en.html', 'user_management_cn.html']
     },

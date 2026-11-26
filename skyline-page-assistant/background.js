@@ -1,4 +1,5 @@
 const PENDING_KEY = 'skyline.imei.pending';
+const ETMS_PENDING_KEY = 'skyline.etms.pending';
 const PROFILE_KEY = 'skyline.device-profile.preferences';
 const PROFILE_PREFERENCES = ['auto', 'sms', 'voice'];
 
@@ -12,6 +13,7 @@ chrome.action.onClicked.addListener((tab) => {
 
 // chrome.storage.session is not exposed to content scripts by default. Keep it
 // behind a narrow background broker instead of widening its access level.
+// Pending records never include ETMS passwords; only non-secret readback facts are stored.
 // Keep preferences behind a fixed-key broker. The only accepted values are
 // auto/sms/voice; device credentials, menus and configuration are never stored.
 function profileOrigin(sender) {
@@ -41,13 +43,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (error) {
       operation = Promise.reject(error);
     }
-  } else if (message.key === PENDING_KEY) {
+  } else if (message.key === PENDING_KEY || message.key === ETMS_PENDING_KEY) {
     if (message.type === 'skyline.pending.get') {
-      operation = chrome.storage.session.get(PENDING_KEY).then((items) => items[PENDING_KEY]);
+      operation = chrome.storage.session.get(message.key).then((items) => items[message.key]);
     } else if (message.type === 'skyline.pending.set') {
-      operation = chrome.storage.session.set({ [PENDING_KEY]: message.value });
+      operation = chrome.storage.session.set({ [message.key]: message.value });
     } else if (message.type === 'skyline.pending.remove') {
-      operation = chrome.storage.session.remove(PENDING_KEY);
+      operation = chrome.storage.session.remove(message.key);
     } else {
       return;
     }

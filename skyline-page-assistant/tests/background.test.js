@@ -57,6 +57,28 @@ test('background broker stores and returns only the pending operation record', a
   assert.equal(background.data[key], undefined);
 });
 
+test('background broker stores ETMS readback facts under their own session key', async () => {
+  const background = createBackground();
+  const key = 'skyline.etms.pending';
+  const pending = {
+    version: 1,
+    kind: 'etms',
+    origin: 'http://192.0.2.1',
+    path: '/user_management_cn.html',
+    expected: { type: 2, server: 'remote.tyhtsf.com', port: '50000', account: 'testeSIM' },
+    attempts: 0,
+    createdAt: Date.now()
+  };
+  const stored = await background.dispatch({ type: 'skyline.pending.set', key, value: pending });
+  assert.equal(stored.ok, true);
+  const response = await background.dispatch({ type: 'skyline.pending.get', key });
+  assert.equal(response.ok, true);
+  assert.deepEqual(response.value, pending);
+  assert.equal(Object.hasOwn(response.value.expected, 'password'), false);
+  await background.dispatch({ type: 'skyline.pending.remove', key });
+  assert.equal(background.data[key], undefined);
+});
+
 test('background broker rejects other storage keys and unrelated messages', async () => {
   const background = createBackground();
   assert.equal(background.dispatchIgnored({ type: 'skyline.pending.get', key: 'other.key' }), undefined);

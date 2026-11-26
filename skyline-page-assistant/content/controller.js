@@ -4,11 +4,13 @@
   const imei = globalThis.SkylineImei;
   const moduleRegistry = globalThis.SkylineModules;
   const deviceProfile = globalThis.SkylineDeviceProfile;
+  const etms = globalThis.SkylineEtms;
   const isMainPage = /^\/main_(?:en|cn)\.html$/.test(location.pathname);
   const isDirectImeiPage = /^\/goip_imei_(?:en|cn)\.html$/.test(location.pathname);
-  if (!imei || !moduleRegistry || (isMainPage && !deviceProfile) || (!isMainPage && !isDirectImeiPage) || window !== window.top) return;
+  if (!imei || !moduleRegistry || !etms || (isMainPage && !deviceProfile) || (!isMainPage && !isDirectImeiPage) || window !== window.top) return;
 
   const STORAGE_KEY = 'skyline.imei.pending';
+  const ETMS_STORAGE_KEY = 'skyline.etms.pending';
   const PROFILE_KEY = 'skyline.device-profile.preferences';
   const HIGHLIGHT_CLASS = 'skyline-page-assistant-highlight';
   const BADGE_CLASS = 'skyline-page-assistant-step-badge';
@@ -22,6 +24,9 @@
   let submitting = false;
   let verificationTimer = null;
   let verificationSequence = 0;
+  let etmsSubmitting = false;
+  let etmsVerificationTimer = null;
+  let etmsVerificationSequence = 0;
   let activeModule = null;
   let profilePreference = 'auto';
   let detectedProfile = 'unknown';
@@ -48,11 +53,11 @@
     });
   }
 
-  function pendingStorage(action, value) {
+  function pendingStorage(action, value, key = STORAGE_KEY) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({
         type: `skyline.pending.${action}`,
-        key: STORAGE_KEY,
+        key,
         value
       }, (response) => {
         const runtimeError = chrome.runtime.lastError;
@@ -209,6 +214,15 @@
     badge.style.top = `${Math.max(4, top)}px`;
   }
 
+  function installAssistantStyles(targetDocument) {
+    const style = targetDocument.createElement('style');
+    style.textContent = `
+      .${HIGHLIGHT_CLASS} { outline: 3px solid #ff9f1c !important; outline-offset: 3px !important; box-shadow: 0 0 0 6px rgba(255,159,28,.18) !important; }
+      .${BADGE_CLASS} { position: fixed; z-index: 2147483646; max-width: 310px; padding: 5px 9px; border-radius: 5px; color: #fff; background: #d66b00; box-shadow: 0 3px 10px rgba(0,0,0,.25); font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; pointer-events: none; }
+    `;
+    (targetDocument.head || targetDocument.documentElement).appendChild(style);
+  }
+
   function highlightIn(targetDocument, targetWindow, element, step, label, scroll = true) {
     clearHighlight();
     if (!element) return;
@@ -284,9 +298,15 @@
   }
 
   function canLeaveCurrentPage() {
-    if (!panel.plan || panel.plan.attempted) return true;
-    panel.setResult('unconfirmed', '当前预览尚未完成，请先取消或确认真实 Submit。');
-    return false;
+    if (panel.plan && !panel.plan.attempted) {
+      panel.setResult('unconfirmed', '当前预览尚未完成，请先取消或确认真实 Submit。');
+      return false;
+    }
+    if (panel.etmsPlan && !panel.etmsPlan.attempted) {
+      panel.setResult('unconfirmed', '当前 ETMS 预览尚未完成，请先取消或确认真实 Submit。');
+      return false;
+    }
+    return true;
   }
 
   function syncProfile() {
@@ -393,6 +413,160 @@
     }
   }
 
+  function readEtmsPage() {
+    const current = etms.readCurrent(pageDocument);
+    if (!current) throw new Error('未找到 ETMS 设备网管表单。');
+    panel.setEtmsPage(current);
+    return current;
+  }
+
+  function etmsStepTarget(step) {
+    const current = etms.readCurrent(pageDocument);
+    if (!current) return null;
+    const elements = current.elements;
+    if (step === 1) return pageDocument.querySelector('#ID_EjoinRemMgmtBox_Body') || pageDocument.querySelector('#EjoinRemMgmtBox');
+    if (step === 2) return elements.radios.find((radio) => Number(radio.value) === etms.ETMS_TYPE) || elements.checked;
+    if (step === 3) return elements.server;
+    if (step === 4) return elements.submit;
+    return elements.status;
+  }
+
+  function highlightEtmsStep(step, scroll = true) {
+    const labels = {
+      1: '确认设备网管区块',
+      2: '选择 ETMS 网管类型',
+      3: '填写服务器、端口、账号和密码',
+      4: '核对预览后点击真实 Submit',
+      5: '等待状态回读为 OK'
+    };
+    panel.setEtmsStep(step);
+    highlight(etmsStepTarget(step), step, labels[step] || 'ETMS 注册', scroll);
+  }
+
+  function dispatchEtmsInput(control) {
+    control.dispatchEvent(new pageWindow.Event('input', { bubbles: true }));
+    control.dispatchEvent(new pageWindow.Event('change', { bubbles: true }));
+  }
+
+  function fillEtmsPlan(plan) {
+    const current = etms.readCurrent(pageDocument);
+    if (!current) throw new Error('真实 ETMS 表单已不存在，未执行提交。');
+    const elements = current.elements;
+    const etmsRadio = elements.radios.find((radio) => Number(radio.value) === etms.ETMS_TYPE);
+    if (!etmsRadio) throw new Error('真实页面找不到 ETMS 网管类型，未执行提交。');
+    if (!etmsRadio.checked) etmsRadio.click();
+    else etmsRadio.dispatchEvent(new pageWindow.Event('change', { bubbles: true }));
+    elements.server.value = plan.server;
+    elements.port.value = String(plan.port);
+    elements.account.value = plan.account;
+    elements.password.value = plan.password;
+    [elements.server, elements.port, elements.account, elements.password].forEach(dispatchEtmsInput);
+  }
+
+  function scheduleEtmsVerification(targetDocument, delay) {
+    if (etmsVerificationTimer) clearTimeout(etmsVerificationTimer);
+    const sequence = ++etmsVerificationSequence;
+    etmsVerificationTimer = setTimeout(() => {
+      if (sequence !== etmsVerificationSequence || targetDocument !== pageDocument) return;
+      verifyEtmsPending(targetDocument).catch((error) => {
+        etmsSubmitting = false;
+        panel.setBusy(false);
+        panel.setResult('unconfirmed', `ETMS 回读处理失败：${error.message}。请人工核对真实页面。`);
+      });
+    }, delay);
+  }
+
+  async function verifyEtmsPending(targetDocument) {
+    if (targetDocument !== pageDocument || !pageWindow) return;
+    const pending = await pendingStorage('get', null, ETMS_STORAGE_KEY);
+    if (targetDocument !== pageDocument) return;
+    if (!pending || pending.kind !== 'etms' || pending.origin !== pageWindow.location.origin || pending.path !== pageWindow.location.pathname) return;
+    if (Date.now() - pending.createdAt > 15 * 60 * 1000) {
+      await pendingStorage('remove', null, ETMS_STORAGE_KEY);
+      etmsSubmitting = false;
+      panel.setBusy(false);
+      panel.clearEtmsPreview(false);
+      panel.setResult('unconfirmed', '一次 ETMS 注册已超过 15 分钟，停止自动回读。请人工检查真实页面状态。');
+      return;
+    }
+    const current = etms.readCurrent(pageDocument);
+    panel.setEtmsPage(current);
+    panel.setEtmsStep(5);
+    const result = etms.evaluateRegistrationReadback(pending, current);
+    etmsSubmitting = false;
+    panel.setBusy(false);
+    if (result.status === 'success') {
+      panel.clearEtmsPreview(true);
+      panel.setEtmsStep(5);
+      panel.setResult('success', result.message);
+      highlight(current && current.elements.status, 5, 'ETMS 状态 OK', false);
+      await pendingStorage('remove', null, ETMS_STORAGE_KEY);
+      return;
+    }
+    if (result.status === 'failure') {
+      panel.clearEtmsPreview(false);
+      panel.setResult('failure', result.message);
+      highlight(current && current.elements.status, 5, 'ETMS 回读不一致', false);
+      await pendingStorage('remove', null, ETMS_STORAGE_KEY);
+      return;
+    }
+    if (pending.attempts < 12) {
+      pending.attempts += 1;
+      await pendingStorage('set', pending, ETMS_STORAGE_KEY);
+      panel.setResult('unconfirmed', `${result.message} ${(pending.attempts * 2.5).toFixed(1)} 秒后重读（第 ${pending.attempts}/12 次）。`);
+      highlight(current && current.elements.status, 5, '等待 ETMS 状态 OK', false);
+      scheduleEtmsVerification(targetDocument, 2500);
+      return;
+    }
+    await pendingStorage('remove', null, ETMS_STORAGE_KEY);
+    panel.clearEtmsPreview(false);
+    panel.setResult('unconfirmed', `${result.message} 已等待约 30 秒，请人工核对 ETMS 状态。`);
+  }
+
+  async function submitEtmsChanges(plan) {
+    if (etmsSubmitting) return;
+    const current = etms.readCurrent(pageDocument);
+    if (!current) throw new Error('真实 ETMS 表单已不存在，未执行提交。');
+    if (!etms.snapshotsEqual(plan.snapshot, etms.snapshot(current))) {
+      throw new Error('预览后 ETMS 页面状态已变化，已停止 Submit。请重新生成预览。');
+    }
+    const submittedDocument = pageDocument;
+    const pending = {
+      version: 1,
+      kind: 'etms',
+      origin: pageWindow.location.origin,
+      path: pageWindow.location.pathname,
+      expected: {
+        type: etms.ETMS_TYPE,
+        server: plan.server,
+        port: String(plan.port),
+        account: plan.account
+      },
+      attempts: 0,
+      createdAt: Date.now()
+    };
+    await pendingStorage('set', pending, ETMS_STORAGE_KEY);
+    if (pageDocument !== submittedDocument) {
+      await pendingStorage('remove', null, ETMS_STORAGE_KEY);
+      throw new Error('等待写入回读记录时真实页面已变化，未点击 Submit。请重新识别页面并预览。');
+    }
+    try {
+      fillEtmsPlan(plan);
+    } catch (error) {
+      await pendingStorage('remove', null, ETMS_STORAGE_KEY);
+      throw error;
+    }
+    plan.password = '';
+    etmsSubmitting = true;
+    panel.setBusy(true);
+    panel.markEtmsAttempted();
+    panel.setEtmsStep(5);
+    panel.setResult('info', '已填写 ETMS 注册信息，正在点击真实 Submit。结果必须等待状态回读为 OK。');
+    highlight(current.elements.submit, 4, '已调用真实 Submit，等待状态 OK', false);
+    current.elements.submit.click();
+    scheduleEtmsVerification(submittedDocument, 1000);
+  }
+
   const panel = new globalThis.SkylinePanel({
     onWorkflowChange(workflow) {
       if (panel.plan && panel.plan.kind === 'batch') {
@@ -432,6 +606,37 @@
       } else {
         highlight(realSubmitButton(), 5, '核对全部变更后点击真实 Submit');
       }
+    },
+    onEtmsStep(step) {
+      if (!pageDocument || !activeModule || activeModule.id !== 'etms-registration') {
+        openModule('etms-registration');
+        return;
+      }
+      highlightEtmsStep(step);
+    },
+    onEtmsPreview(selection) {
+      try {
+        const current = etms.readCurrent(pageDocument);
+        if (!current) throw new Error('当前页面不是可识别的 ETMS 设备网管页面。');
+        const plan = etms.createChangePlan(current, selection);
+        panel.setEtmsPreview(plan);
+        highlightEtmsStep(4, false);
+      } catch (error) {
+        panel.setResult('failure', error.message);
+      }
+    },
+    onEtmsCancel() {
+      panel.clearEtmsPreview(true);
+      panel.setEtmsStep(3);
+      panel.setResult('info', '已取消 ETMS 预览；未填写或提交真实页面。');
+      highlightEtmsStep(3, false);
+    },
+    onEtmsExecute(plan) {
+      submitEtmsChanges(plan).catch((error) => {
+        etmsSubmitting = false;
+        panel.setBusy(false);
+        panel.setResult('failure', error.message);
+      });
     },
     onTargetChange() {
       panel.setStep(2);
@@ -730,12 +935,10 @@
     pageDocument = targetDocument;
     pageWindow = targetWindow;
     activeModule = moduleRegistry.getModule('imei');
-    const style = pageDocument.createElement('style');
-    style.textContent = `
-      .${HIGHLIGHT_CLASS} { outline: 3px solid #ff9f1c !important; outline-offset: 3px !important; box-shadow: 0 0 0 6px rgba(255,159,28,.18) !important; }
-      .${BADGE_CLASS} { position: fixed; z-index: 2147483646; max-width: 310px; padding: 5px 9px; border-radius: 5px; color: #fff; background: #d66b00; box-shadow: 0 3px 10px rgba(0,0,0,.25); font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; pointer-events: none; }
-    `;
-    (pageDocument.head || pageDocument.documentElement).appendChild(style);
+    submitting = false;
+    etmsSubmitting = false;
+    panel.setBusy(false);
+    installAssistantStyles(pageDocument);
     readPage();
     panel.toggle(true);
     highlight(modeRadio(), 1, '确认“指定 IMEI 前缀”模式', false);
@@ -746,14 +949,42 @@
     });
   }
 
+  function attachEtmsPage(targetDocument, targetWindow) {
+    clearHighlight();
+    if (etmsVerificationTimer) clearTimeout(etmsVerificationTimer);
+    etmsVerificationSequence += 1;
+    pageDocument = targetDocument;
+    pageWindow = targetWindow;
+    controls = [];
+    activeModule = moduleRegistry.getModule('etms-registration');
+    submitting = false;
+    etmsSubmitting = false;
+    panel.setBusy(false);
+    installAssistantStyles(pageDocument);
+    readEtmsPage();
+    panel.toggle(true);
+    highlightEtmsStep(1, false);
+    verifyEtmsPending(targetDocument).catch((error) => {
+      etmsSubmitting = false;
+      panel.setBusy(false);
+      panel.setResult('unconfirmed', `真实页面已返回，但 ETMS 回读记录处理失败：${error.message}。请人工核对当前状态。`);
+    });
+  }
+
   function detachPage() {
-    const discardedPreview = Boolean(panel.plan && !panel.plan.attempted);
+    const discardedPreview = Boolean((panel.plan && !panel.plan.attempted) || (panel.etmsPlan && !panel.etmsPlan.attempted));
     clearHighlight();
     if (verificationTimer) clearTimeout(verificationTimer);
+    if (etmsVerificationTimer) clearTimeout(etmsVerificationTimer);
     verificationSequence += 1;
+    etmsVerificationSequence += 1;
     pageDocument = null;
     pageWindow = null;
     controls = [];
+    submitting = false;
+    etmsSubmitting = false;
+    panel.setBusy(false);
+    panel.clearEtmsPreview(true);
     panel.clearPreview();
     if (isMainPage) {
       panel.showModules(activeModule && activeModule.id, activeModule);
@@ -779,8 +1010,15 @@
     try {
       const targetWindow = rightFrame.contentWindow;
       const targetDocument = rightFrame.contentDocument;
-      if (imei.isSupportedPage(targetWindow.location, targetDocument) && imei.collectImeiControls(targetDocument).length) {
-        if (pageDocument !== targetDocument) attachPage(targetDocument, targetWindow);
+      const isImei = imei.isSupportedPage(targetWindow.location, targetDocument) && imei.collectImeiControls(targetDocument).length;
+      const isEtms = !isImei && etms.isSupportedPage(targetWindow.location, targetDocument);
+      const nextModuleId = isImei ? 'imei' : (isEtms ? 'etms-registration' : null);
+      if (nextModuleId) {
+        if (pageDocument !== targetDocument) {
+          if (pageDocument && activeModule && activeModule.id !== nextModuleId) detachPage();
+          if (isImei) attachPage(targetDocument, targetWindow);
+          else attachEtmsPage(targetDocument, targetWindow);
+        }
       } else {
         activeModule = moduleRegistry.matchLocation(targetWindow.location);
         if (pageDocument) detachPage();

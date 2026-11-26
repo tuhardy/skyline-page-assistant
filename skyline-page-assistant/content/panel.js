@@ -30,6 +30,14 @@
     batch: ['模式', '范围', 'Copy', '补全', '提交', '重启']
   };
 
+  const ETMS_STEPS = [
+    ['确认 ETMS 区块', '只在“用户及设备管理”的设备网管区块操作。'],
+    ['选择 ETMS', '网管类型必须选择 ETMS；NONE/ERMS 不是本流程。'],
+    ['填写注册信息', '输入服务器、端口、账号和密码；密码不保存。'],
+    ['预览并提交', '核对非密码字段后，再确认真实 Submit。'],
+    ['回读状态', '等待真实状态变为 OK；不打开外部注册链接。']
+  ];
+
   class SkylinePanel {
     constructor(callbacks) {
       this.callbacks = callbacks || {};
@@ -42,6 +50,10 @@
       this.isMainPage = false;
       this.modules = [];
       this.activeModuleId = null;
+      this.etmsActive = false;
+      this.etmsStep = 1;
+      this.etmsPlan = null;
+      this.etmsCurrent = null;
 
       this.host = document.createElement('div');
       this.host.id = 'skyline-page-assistant-host';
@@ -149,7 +161,7 @@
                 <span id="profile-status">自动：识别中</span>
               </div>
               <div class="module-list" id="module-list"></div>
-              <p class="module-note">仅导航：打开真实菜单，不修改配置。</p>
+              <p class="module-note">仅 IMEI / ETMS 在确认后代操作；其余入口只导航。</p>
             </section>
             <section class="workspace" id="imei-workspace" hidden>
             <button class="link-button back-button" id="back-modules" type="button">← 功能列表</button>
@@ -206,6 +218,36 @@
               <button class="secondary" id="cancel-preview" type="button">取消预览</button>
             </section>
             </section>
+            <section class="workspace" id="etms-workspace" hidden>
+            <button class="link-button back-button" id="etms-back-modules" type="button">← 功能列表</button>
+            <div class="page-state"><span class="live">已连接 ETMS 页面</span><span id="etms-current-value">正在读取…</span></div>
+            <nav class="steps" id="etms-steps" aria-label="ETMS 注册步骤"></nav>
+            <section class="guide">
+              <span id="etms-step-count"></span><h2 id="etms-step-title"></h2><p id="etms-step-description"></p>
+              <div class="guide-actions"><button class="link-button" id="etms-locate" type="button">定位本步</button><button class="link-button" id="etms-next-step" type="button">下一步 →</button></div>
+            </section>
+            <form id="etms-form">
+              <h3 class="form-title">ETMS 注册</h3>
+              <div class="current" id="etms-current">当前：正在读取…</div>
+              <label class="field">服务器 IP / 域名<input id="etms-server" data-etms-operation type="text" autocomplete="off" maxlength="64" required></label>
+              <label class="field">网管端口<input id="etms-port" data-etms-operation type="number" min="1" max="65535" step="1" required></label>
+              <label class="field">ETMS 账号<input id="etms-account" data-etms-operation type="text" autocomplete="off" maxlength="64" required></label>
+              <label class="field">ETMS 密码<input id="etms-password" data-etms-operation type="password" autocomplete="new-password" maxlength="128" required></label>
+              <div class="notice">没有 ETMS 账号？请先在服务商处注册；助手不会打开外部注册链接，也不会读取或保存页面现有密码。</div>
+              <button class="primary" id="etms-preview-button" data-etms-operation type="submit">预览 ETMS 注册</button>
+            </form>
+            <section class="preview" id="etms-preview" hidden>
+              <div class="preview-title">核对 ETMS 注册</div>
+              <div class="change-line"><span>类型</span><strong id="etms-preview-type"></strong></div>
+              <div class="change-line"><span>服务器</span><strong id="etms-preview-server"></strong></div>
+              <div class="change-line"><span>端口</span><strong id="etms-preview-port"></strong></div>
+              <div class="change-line"><span>账号</span><strong id="etms-preview-account"></strong></div>
+              <div class="change-line"><span>密码</span><strong>已填写（不显示、不保存）</strong></div>
+              <div class="auto-note" id="etms-auto-note"></div>
+              <button class="primary" id="etms-execute-button" type="button">确认并提交</button>
+              <button class="secondary" id="etms-cancel-preview" type="button">取消预览</button>
+            </section>
+            </section>
             <div class="result" id="result" role="status" aria-live="polite" hidden></div>
             <div class="footer"><p class="privacy">仅本机处理</p><button class="link-button" id="reboot-guide" type="button">保存 / 重启</button></div>
           </div>
@@ -228,6 +270,14 @@
       this.resultElement = this.shadow.getElementById('result');
       this.moduleHome = this.shadow.getElementById('module-home');
       this.imeiWorkspace = this.shadow.getElementById('imei-workspace');
+      this.etmsWorkspace = this.shadow.getElementById('etms-workspace');
+      this.etmsServer = this.shadow.getElementById('etms-server');
+      this.etmsPort = this.shadow.getElementById('etms-port');
+      this.etmsAccount = this.shadow.getElementById('etms-account');
+      this.etmsPassword = this.shadow.getElementById('etms-password');
+      this.etmsPreviewButton = this.shadow.getElementById('etms-preview-button');
+      this.etmsPreviewSection = this.shadow.getElementById('etms-preview');
+      this.etmsExecuteButton = this.shadow.getElementById('etms-execute-button');
       this.moduleList = this.shadow.getElementById('module-list');
       this.profilePreference = this.shadow.getElementById('profile-preference');
 
@@ -237,6 +287,9 @@
       this.shadow.getElementById('next-step').addEventListener('click', () => this.emit('onStep', Math.min(WORKFLOWS[this.workflow].length, this.step + 1)));
       this.shadow.getElementById('reboot-guide').addEventListener('click', () => this.emit('onRebootGuide'));
       this.shadow.getElementById('back-modules').addEventListener('click', () => this.emit('onBackModules'));
+      this.shadow.getElementById('etms-back-modules').addEventListener('click', () => this.emit('onBackModules'));
+      this.shadow.getElementById('etms-locate').addEventListener('click', () => this.emit('onEtmsStep', this.etmsStep));
+      this.shadow.getElementById('etms-next-step').addEventListener('click', () => this.emit('onEtmsStep', Math.min(ETMS_STEPS.length, this.etmsStep + 1)));
       this.profilePreference.addEventListener('change', () => this.emit('onProfileChange', this.profilePreference.value));
       this.moduleList.addEventListener('click', (event) => {
         const button = event.target.closest('[data-module-id]');
@@ -280,6 +333,24 @@
         event.preventDefault();
         if (!this.busy) this.emit('onBatchPrepare', this.getBatchSelection());
       });
+      [this.etmsServer, this.etmsPort, this.etmsAccount, this.etmsPassword].forEach((field) => {
+        field.addEventListener('input', () => this.clearEtmsPreview());
+      });
+      this.shadow.getElementById('etms-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!this.busy) this.emit('onEtmsPreview', this.getEtmsSelection());
+      });
+      this.etmsExecuteButton.addEventListener('click', () => {
+        if (!this.busy && this.etmsPlan) this.emit('onEtmsExecute', this.etmsPlan);
+      });
+      this.shadow.getElementById('etms-cancel-preview').addEventListener('click', () => {
+        if (this.busy || !this.etmsPlan) return;
+        if (this.etmsPlan.attempted) {
+          this.setResult('unconfirmed', '真实 Submit 已经尝试过，取消预览不能撤销设备修改。请等待状态回读或人工核对真实页面。');
+          return;
+        }
+        this.emit('onEtmsCancel', this.etmsPlan);
+      });
       this.executeButton.addEventListener('click', () => {
         if (!this.busy && this.plan) this.emit('onExecute', this.plan);
       });
@@ -292,6 +363,8 @@
         if (this.plan.kind === 'batch') this.emit('onBatchCancel', this.plan);
         else this.clearPreview();
       });
+      this.renderEtmsStepTabs();
+      this.setEtmsStep(1);
       this.setWorkflow('single');
       this.setShell(false);
     }
@@ -337,8 +410,10 @@
 
     showModules(activeId = null, pageModule = null) {
       this.activeModuleId = activeId;
+      this.etmsActive = false;
       this.moduleHome.hidden = false;
       this.imeiWorkspace.hidden = true;
+      this.etmsWorkspace.hidden = true;
       this.shadow.getElementById('shell-subtitle').textContent = '全局助手 · 顶层页面模式';
       this.shadow.getElementById('module-page-value').textContent = pageModule
         ? `${pageModule.name}${pageModule.capability === 'navigation' ? ' · 仅导航' : ''}`
@@ -346,15 +421,28 @@
       this.moduleList.querySelectorAll('[data-module-id]').forEach((button) => {
         button.classList.toggle('active', button.dataset.moduleId === activeId);
       });
+      this.clearEtmsPreview(true);
       this.clearPreview();
     }
 
     showImei() {
+      this.etmsActive = false;
       this.moduleHome.hidden = true;
       this.imeiWorkspace.hidden = false;
+      this.etmsWorkspace.hidden = true;
       this.shadow.getElementById('shell-subtitle').textContent = this.isMainPage
         ? 'IMEI 设置 · 顶层页面模式'
         : 'IMEI 设置 · 功能页模式';
+    }
+
+    showEtms() {
+      this.etmsActive = true;
+      this.moduleHome.hidden = true;
+      this.imeiWorkspace.hidden = true;
+      this.etmsWorkspace.hidden = false;
+      this.shadow.getElementById('shell-subtitle').textContent = this.isMainPage
+        ? 'ETMS 注册 · 顶层页面模式'
+        : 'ETMS 注册 · 功能页模式';
     }
 
     setPage(mode, controls) {
@@ -375,6 +463,105 @@
       this.renderSlots(previous.slot);
       this.updateBatchTargetSummary();
       this.clearPreview();
+    }
+
+    setEtmsPage(current) {
+      this.etmsCurrent = current || null;
+      this.showEtms();
+      if (!this.etmsPlan) {
+        this.etmsServer.value = current ? current.server : '';
+        this.etmsPort.value = current ? current.port : '';
+        this.etmsAccount.value = current ? current.account : '';
+      }
+      this.updateEtmsCurrent();
+      // 密码保留在密码框中：注册常需多次尝试，成功、取消或离开本页时才清除。
+      this.clearEtmsPreview(false);
+    }
+
+    updateEtmsCurrent() {
+      const labels = { 0: 'NONE', 1: 'ERMS', 2: 'ETMS' };
+      const current = this.etmsCurrent;
+      const type = current && current.type !== null ? (labels[current.type] || `未知 (${current.type})`) : '未识别';
+      const status = current && current.status ? current.status : '空';
+      this.shadow.getElementById('etms-current-value').textContent = `${type} · 状态 ${status}`;
+      this.shadow.getElementById('etms-current').textContent = current
+        ? `当前：${type} · ${current.server || '—'}:${current.port || '—'} · ${current.account || '—'} · 状态 ${status}`
+        : '当前：未读取到 ETMS 设备网管表单';
+    }
+
+    renderEtmsStepTabs() {
+      const container = this.shadow.getElementById('etms-steps');
+      container.replaceChildren();
+      ETMS_STEPS.forEach((_, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'step-tab';
+        button.dataset.etmsStep = String(index + 1);
+        button.textContent = `${index + 1} ${['区块', '类型', '填写', '提交', '状态'][index]}`;
+        button.addEventListener('click', () => this.emit('onEtmsStep', index + 1));
+        container.appendChild(button);
+      });
+    }
+
+    setEtmsStep(step) {
+      this.etmsStep = Math.max(1, Math.min(ETMS_STEPS.length, Number(step) || 1));
+      const content = ETMS_STEPS[this.etmsStep - 1];
+      this.shadow.getElementById('etms-step-count').textContent = `第 ${this.etmsStep} 步，共 ${ETMS_STEPS.length} 步`;
+      this.shadow.getElementById('etms-step-title').textContent = content[0];
+      this.shadow.getElementById('etms-step-description').textContent = content[1];
+      this.shadow.getElementById('etms-next-step').textContent = this.etmsStep === ETMS_STEPS.length ? '已到最后一步' : '下一步 →';
+      this.shadow.getElementById('etms-next-step').disabled = this.etmsStep === ETMS_STEPS.length;
+      this.shadow.querySelectorAll('[data-etms-step]').forEach((button) => {
+        if (Number(button.dataset.etmsStep) === this.etmsStep) button.setAttribute('aria-current', 'step');
+        else button.removeAttribute('aria-current');
+      });
+    }
+
+    getEtmsSelection() {
+      return {
+        server: this.etmsServer.value.trim(),
+        port: this.etmsPort.value.trim(),
+        account: this.etmsAccount.value.trim(),
+        password: this.etmsPassword.value
+      };
+    }
+
+    setEtmsPreview(plan) {
+      this.etmsPlan = { ...plan, attempted: false };
+      this.shadow.getElementById('etms-preview-type').textContent = 'ETMS';
+      this.shadow.getElementById('etms-preview-server').textContent = plan.server;
+      this.shadow.getElementById('etms-preview-port').textContent = String(plan.port);
+      this.shadow.getElementById('etms-preview-account').textContent = plan.account;
+      this.shadow.getElementById('etms-auto-note').textContent = plan.changed
+        ? '将提交以上非密码字段；密码只随本次真实 Submit 发送，不显示、不保存；成功或离开本页后自动清除，多次尝试无需重复输入。'
+        : '非密码字段未变化；仍将提交 ETMS 设置。密码只随本次真实 Submit 发送，不显示、不保存；成功或离开本页后自动清除，多次尝试无需重复输入。';
+      this.etmsPreviewSection.hidden = false;
+      this.etmsExecuteButton.textContent = '确认并提交 ETMS 注册';
+      this.updateEtmsLock();
+      this.setEtmsStep(4);
+      this.setResult('info', 'ETMS 预览尚未提交。');
+    }
+
+    clearEtmsPreview(clearPassword = false) {
+      this.etmsPlan = null;
+      this.etmsPreviewSection.hidden = true;
+      this.etmsExecuteButton.disabled = true;
+      if (clearPassword) this.etmsPassword.value = '';
+      this.updateEtmsLock();
+    }
+
+    markEtmsAttempted() {
+      if (!this.etmsPlan) return;
+      this.etmsPlan.attempted = true;
+      this.etmsExecuteButton.textContent = '再次尝试 Submit（上次结果未确认）';
+    }
+
+    updateEtmsLock() {
+      const locked = Boolean(this.etmsPlan);
+      [this.etmsServer, this.etmsPort, this.etmsAccount, this.etmsPassword, this.etmsPreviewButton].forEach((control) => {
+        control.disabled = this.busy || locked;
+      });
+      this.etmsExecuteButton.disabled = this.busy || !this.etmsPlan;
     }
 
     replaceOptions(select, values, preferred, label) {
@@ -552,6 +739,7 @@
       this.previewButton.disabled = busy;
       this.updateBatchPreparationLock();
       this.executeButton.disabled = busy || !this.plan;
+      this.updateEtmsLock();
     }
 
     setResult(status, message) {

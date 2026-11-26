@@ -2,11 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const modules = require('../core/modules.js');
 
-test('registers unique bundled modules with only IMEI allowed to operate', () => {
+test('registers unique bundled modules with only IMEI and ETMS allowed to operate', () => {
   const list = modules.listModules();
   assert.equal(new Set(list.map((module) => module.id)).size, list.length);
   assert.equal(new Set(list.flatMap((module) => module.pages)).size, list.length * 2);
-  assert.deepEqual(list.filter((module) => module.capability === 'operation').map((module) => module.id), ['imei']);
+  assert.deepEqual(list.filter((module) => module.capability === 'operation').map((module) => module.id), ['imei', 'etms-registration']);
   assert.equal(modules.getModule('save-reboot').capability, 'guide');
   assert.equal(modules.getModule('missing'), null);
   assert.equal(modules.getModule('etms-registration').pages[0], 'user_management_en.html');

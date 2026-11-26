@@ -33,6 +33,18 @@ const imeiPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <span id="ID_SpanCopyImei">
 <input type="button" value="复制" onclick="return false"><input type="button" value="清空" onclick="return false"><input type="button" value="自动补全" onclick="return false">
 </span><input type="submit" value="提交" onclick="return false"></form></body></html>`;
+const etmsPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+<div class="infoBox" id="EjoinRemMgmtBox"><form><div class="infoBoxBody" id="ID_EjoinRemMgmtBox_Body">
+<label><input type="radio" value="0" name="ermc_enable" id="ID_ermc_enable0">NONE</label>
+<label><input type="radio" value="1" name="ermc_enable" id="ID_ermc_enable1">ERMS</label>
+<label><input type="radio" value="2" name="ermc_enable" id="ID_ermc_enable2" checked>ETMS</label>
+<input id="ID_erms_ip" name="erms_ip" value="remote.tyhtsf.com">
+<input id="ID_erms_port" name="erms_port" value="50000">
+<input id="ID_ermc_username" name="ermc_username" value="testeSIM">
+<input id="ID_ermc_password" name="ermc_password" type="password" value="">
+<div id="ID_TdErmStatus"></div>
+<div class="infoBoxBodyBtns"><input type="submit" value="确定" onclick="document.getElementById('ID_TdErmStatus').textContent='OK'; return false;"></div>
+</div></form></div></body></html>`;
 const pages = {
   '/main_cn.html': '<!doctype html><html><head><meta charset="utf-8"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}</style></head><body><iframe src="mainindex_cn.html"></iframe></body></html>',
   '/mainindex_cn.html': `<!doctype html><html><frameset cols="*,1050,*"><frame name="top" src="main_top_cn.html"><frameset rows="96,*"><frame src="about:blank"><frameset cols="190,*"><frame name="left" src="main_left_cn.html"><frame name="right" src="initial_config_cn.html"></frameset></frameset><frame src="about:blank"></frameset></html>`,
@@ -43,6 +55,7 @@ const pages = {
 menuPages.filter((page) => page !== 'goip_imei').forEach((page) => {
   pages[`/${page}_cn.html`] = `<!doctype html><html><body>${page}</body></html>`;
 });
+pages['/user_management_cn.html'] = etmsPage;
 
 const server = http.createServer((request, response) => {
   if (request.url === '/main_top_cn.html') {
@@ -111,11 +124,13 @@ try {
   await call('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
   await waitFor(`document.readyState === 'complete' && document.querySelector('iframe')?.contentDocument?.querySelector('frame[name="right"]')?.contentDocument?.readyState === 'complete'`);
   await evaluate(await readFile(`${project}\\core\\imei.js`, 'utf8'));
+  await evaluate(await readFile(`${project}\\core\\etms.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\core\\modules.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\core\\device-profile.js`, 'utf8'));
   await evaluate(await readFile(`${project}\\content\\panel.js`, 'utf8'));
   await evaluate(`
     globalThis.__profilePreference = 'auto';
+    globalThis.__pending = {};
     globalThis.chrome = { runtime: {
       lastError: null,
       sendMessage(message, callback) {
@@ -123,6 +138,13 @@ try {
         else if (message.type === 'skyline.profile.set') {
           globalThis.__profilePreference = message.value;
           callback({ ok: true, value: message.value });
+        } else if (message.type === 'skyline.pending.get') callback({ ok: true, value: globalThis.__pending[message.key] });
+        else if (message.type === 'skyline.pending.set') {
+          globalThis.__pending[message.key] = message.value;
+          callback({ ok: true, value: message.value });
+        } else if (message.type === 'skyline.pending.remove') {
+          delete globalThis.__pending[message.key];
+          callback({ ok: true, value: null });
         } else callback({ ok: true, value: null });
       },
       onMessage: { addListener() {} }
@@ -276,6 +298,26 @@ try {
     active: ${shadow}.querySelector('[data-module-id="etms-registration"]').classList.contains('active'),
     moduleName: ${shadow}.querySelector('[data-module-id="etms-registration"] strong').textContent
   }))()`);
+  await waitFor(`${shadow}.getElementById('etms-workspace').hidden === false && ${shadow}.getElementById('etms-current').textContent.includes('remote.tyhtsf.com:50000')`);
+  const etmsAttached = await evaluate(`(() => ({
+    workspaceVisible: !${shadow}.getElementById('etms-workspace').hidden,
+    current: ${shadow}.getElementById('etms-current').textContent,
+    password: ${shadow}.getElementById('etms-password').value
+  }))()`);
+  await evaluate(`${shadow}.getElementById('etms-password').value = 'secret'; ${shadow}.getElementById('etms-preview-button').click()`);
+  await waitFor(`${shadow}.getElementById('etms-preview').hidden === false`);
+  const etmsPreview = await evaluate(`(() => ({
+    text: ${shadow}.getElementById('etms-preview').textContent,
+    password: ${shadow}.getElementById('etms-password').value
+  }))()`);
+  await evaluate(`${shadow}.getElementById('etms-execute-button').click()`);
+  await waitFor(`${shadow}.getElementById('result').textContent.includes('ETMS 注册状态已回读为 OK')`);
+  const etmsResult = await evaluate(`(() => ({
+    result: ${shadow}.getElementById('result').textContent,
+    pending: globalThis.__pending['skyline.etms.pending'] || null,
+    password: ${shadow}.getElementById('etms-password').value,
+    status: document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument.getElementById('ID_TdErmStatus').textContent
+  }))()`);
 
   await evaluate(`${shadow}.querySelector('[data-module-id="eims-settings"]').click()`);
   await waitFor(`${rightPath} === '/eims_settings_cn.html'`);
@@ -320,13 +362,23 @@ try {
   assert.match(guarded.message, /尚未完成/);
   assert.deepEqual(attemptedNavigation, { path: '/goip_imei_cn.html', homeVisible: true }, '已尝试 Submit 后应允许保留待回读记录并切换页面');
   assert.deepEqual(etmsNavigation, { path: '/user_management_cn.html', active: true, moduleName: 'ETMS 注册' });
+  assert.equal(etmsAttached.workspaceVisible, true, 'ETMS 页面应进入独立工作区');
+  assert.match(etmsAttached.current, /ETMS · remote\.tyhtsf\.com:50000 · testeSIM/);
+  assert.equal(etmsAttached.password, '', 'ETMS 工作区不得读取或回填页面密码');
+  assert.equal(etmsPreview.password, 'secret', '生成预览后密码应保留在面板密码框（仅内存、掩码），便于多次尝试');
+  assert.doesNotMatch(etmsPreview.text, /secret/, 'ETMS 预览不得显示密码');
+  assert.match(etmsPreview.text, /不显示、不保存/);
+  assert.equal(etmsResult.status, 'OK');
+  assert.equal(etmsResult.pending, null, 'ETMS 成功回读后应清除待回读记录');
+  assert.equal(etmsResult.password, '', 'ETMS 注册成功回读后应清除密码输入框');
+  assert.match(etmsResult.result, /密码未保存/);
   assert.deepEqual(navigation, { path: '/eims_settings_cn.html', homeVisible: true, active: true });
   assert.equal(reboot.path, '/eims_settings_cn.html', 'Save/Reboot 指导不得自动导航或重启');
   assert.equal(reboot.submenuVisible, true, '应展开真实保存重启菜单');
   assert.match(reboot.badge, /^第 1 步 · .*Save and Reboot/);
   assert.match(reboot.message, /不会自动点击或自动重启/);
-  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, navigation, reboot, screenshot: screenshotPath }, null, 2));
-  console.log('PASS: 设备识别与手动切换、ETMS 独立导航、全局操作、预览保护和保存重启仅定位均符合预期。');
+  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsPreview, etmsResult, navigation, reboot, screenshot: screenshotPath }, null, 2));
+  console.log('PASS: 设备识别与手动切换、ETMS 独立注册指导/代操作、全局操作、预览保护和保存重启仅定位均符合预期。');
 } finally {
   socket.close();
   await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);

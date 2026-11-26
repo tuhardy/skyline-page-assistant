@@ -78,6 +78,7 @@ async function runMode(scope, initialValues = [original, '', '', '']) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     await evaluate(await readFile(`${project}\\core\\imei.js`, 'utf8'));
+    await evaluate(await readFile(`${project}\\core\\etms.js`, 'utf8'));
     await evaluate(await readFile(`${project}\\core\\modules.js`, 'utf8'));
     await evaluate(await readFile(`${project}\\content\\panel.js`, 'utf8'));
     await evaluate(`
