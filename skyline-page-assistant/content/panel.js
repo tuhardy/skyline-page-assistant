@@ -307,11 +307,12 @@
       else this.showImei();
     }
 
-    setProfileState(preference, detected, effective) {
+    setProfileState(preference, detected, effective, detail = '') {
       const labels = { sms: '短信设备', voice: '语音设备', unknown: '未识别' };
+      const suffix = detail ? `（${detail}）` : '';
       this.profilePreference.value = preference;
       this.shadow.getElementById('profile-status').textContent = preference === 'auto'
-        ? `自动：${labels[detected] || labels.unknown}`
+        ? `自动：${labels[detected] || labels.unknown}${suffix}`
         : `手动：${labels[effective] || labels.unknown}`;
       this.shadow.getElementById('profile-status').dataset.profile = effective;
     }

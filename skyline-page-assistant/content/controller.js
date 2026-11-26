@@ -25,7 +25,11 @@
   let activeModule = null;
   let profilePreference = 'auto';
   let detectedProfile = 'unknown';
+  let detectedProfileDetail = '';
   let effectiveProfile = 'unknown';
+  let softwareVersion = '';
+  let softwareDetectionState = 'idle';
+  let profileDetectionStartedAt = Date.now();
   let moduleSignature = '';
   let profileChangeSequence = 0;
 
@@ -59,16 +63,88 @@
     });
   }
 
-  function findFrame(name) {
+  function findMainIndexDocument() {
     const outer = Array.from(document.querySelectorAll('iframe')).find((frame) => (
       /mainindex_(?:en|cn)\.html$/.test(frame.src)
     )) || document.querySelector('iframe');
     if (!outer) return null;
     try {
-      return outer.contentDocument.querySelector(`frame[name="${name}"]`);
+      return outer.contentDocument;
     } catch (_) {
       return null;
     }
+  }
+
+  function findFrame(name) {
+    const mainIndexDocument = findMainIndexDocument();
+    return mainIndexDocument && mainIndexDocument.querySelector(`frame[name="${name}"]`);
+  }
+
+  function findTopFrame() {
+    const mainIndexDocument = findMainIndexDocument();
+    if (!mainIndexDocument) return null;
+    return mainIndexDocument.querySelector('frame[name="top"]')
+      || Array.from(mainIndexDocument.querySelectorAll('frame')).find((frame) => (
+        /main_top_(?:en|cn)\.html(?:[?#]|$)/.test(frame.src)
+      ))
+      || null;
+  }
+
+  function readTopModelText() {
+    const topFrame = findTopFrame();
+    if (!topFrame) return '';
+    try {
+      const topDocument = topFrame.contentDocument;
+      const link = topDocument.querySelector('.top_info_link');
+      const rendered = (link && link.textContent) || '';
+      const scripts = Array.from(topDocument.scripts).map((script) => script.textContent).join('\n');
+      const match = /short_version\s*=\s*"([^"]+)"/.exec(scripts);
+      const modelText = [rendered, match && match[1]].filter(Boolean).join(' ').trim();
+      if (modelText) return modelText;
+      return (topDocument.body && topDocument.body.innerText) || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  async function fetchSoftwareVersion() {
+    const statusPage = /_cn\.html$/.test(location.pathname) ? 'device_status_cn.html' : 'device_status_en.html';
+    try {
+      const response = await fetch(statusPage, { credentials: 'same-origin', cache: 'no-store' });
+      if (response.ok) {
+        const html = await response.text();
+        const match = /\b[56]\d{2}(?:-[A-Za-z0-9]+)+/.exec(html);
+        if (match) return match[0];
+      }
+    } catch (_) {
+      // The dynamic status page does not contain the version; try its read-only data endpoint below.
+    }
+    try {
+      const response = await fetch('get_parameter.html', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        body: new URLSearchParams({ type: 'sysStatus', target: 'dev_info' })
+      });
+      if (!response.ok) return '';
+      const data = await response.json();
+      return data && data.dev_info && typeof data.dev_info.sw_ver === 'string' ? data.dev_info.sw_ver : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function loadSoftwareVersion() {
+    if (softwareDetectionState !== 'idle') return;
+    softwareDetectionState = 'loading';
+    fetchSoftwareVersion().then((version) => {
+      softwareVersion = version;
+      softwareDetectionState = version ? 'loaded' : 'failed';
+      syncProfile();
+    }).catch(() => {
+      softwareDetectionState = 'failed';
+    });
   }
 
   function realButton(action) {
@@ -215,18 +291,29 @@
 
   function syncProfile() {
     if (!isMainPage) return;
-    let detection = { profile: 'unknown' };
+    let detection = { profile: 'unknown', source: 'none', detail: '' };
+    const modelText = readTopModelText();
     const leftFrame = findFrame('left');
-    if (leftFrame) {
-      try {
-        detection = deviceProfile.detect(leftFrame.contentDocument, moduleRegistry);
-      } catch (_) {
-        // A menu that is still loading is insufficient evidence, not a voice device.
-      }
+    try {
+      detection = deviceProfile.detect(
+        leftFrame ? leftFrame.contentDocument : null,
+        moduleRegistry,
+        { modelText, softwareVersion }
+      );
+    } catch (_) {
+      // A menu that is still loading is insufficient evidence, not a voice device.
+    }
+    if (
+      (detection.source === 'menu' || detection.profile === 'unknown')
+      && softwareDetectionState === 'idle'
+      && Date.now() - profileDetectionStartedAt >= 1500
+    ) {
+      loadSoftwareVersion();
     }
     detectedProfile = detection.profile;
+    detectedProfileDetail = detection.detail || '';
     effectiveProfile = deviceProfile.resolveEffective(profilePreference, detectedProfile);
-    panel.setProfileState(profilePreference, detectedProfile, effectiveProfile);
+    panel.setProfileState(profilePreference, detectedProfile, effectiveProfile, detectedProfileDetail);
     const visibleModules = deviceProfile.modulesForProfile(moduleRegistry.listModules(), effectiveProfile);
     const signature = visibleModules.map((module) => module.id).join('|');
     if (signature !== moduleSignature) {
@@ -511,6 +598,11 @@
       const previous = profilePreference;
       const sequence = ++profileChangeSequence;
       profilePreference = deviceProfile.normalizePreference(value);
+      if (profilePreference === 'auto') {
+        softwareVersion = '';
+        softwareDetectionState = 'idle';
+        profileDetectionStartedAt = Date.now();
+      }
       syncProfile();
       try {
         await profileStorage('set', profilePreference);

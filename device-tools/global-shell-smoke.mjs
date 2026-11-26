@@ -4,6 +4,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 const port = process.argv[2] || '9334';
 const project = 'C:\\Users\\EDY\\Desktop\\sk基本操作\\skyline-page-assistant';
+let topModelText = 'MP 664 eSIM V8.5';
+let softwareVersion = '';
 const menuPages = [
   'goip_imei', 'user_management', 'eims_settings', 'goip_sms_ctl', 'call_dur_ctl',
   'goip_calls_ctl', 'goip_talks_ctl', 'call_ctrl_setting', 'save_reboot'
@@ -33,7 +35,7 @@ const imeiPage = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 </span><input type="submit" value="提交" onclick="return false"></form></body></html>`;
 const pages = {
   '/main_cn.html': '<!doctype html><html><head><meta charset="utf-8"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}</style></head><body><iframe src="mainindex_cn.html"></iframe></body></html>',
-  '/mainindex_cn.html': `<!doctype html><html><frameset cols="*,1050,*"><frame src="about:blank"><frameset rows="96,*"><frame src="about:blank"><frameset cols="190,*"><frame name="left" src="main_left_cn.html"><frame name="right" src="initial_config_cn.html"></frameset></frameset><frame src="about:blank"></frameset></html>`,
+  '/mainindex_cn.html': `<!doctype html><html><frameset cols="*,1050,*"><frame name="top" src="main_top_cn.html"><frameset rows="96,*"><frame src="about:blank"><frameset cols="190,*"><frame name="left" src="main_left_cn.html"><frame name="right" src="initial_config_cn.html"></frameset></frameset><frame src="about:blank"></frameset></html>`,
   '/main_left_cn.html': leftPage,
   '/initial_config_cn.html': '<!doctype html><html><body>Initial configuration</body></html>',
   '/goip_imei_cn.html': imeiPage
@@ -43,6 +45,16 @@ menuPages.filter((page) => page !== 'goip_imei').forEach((page) => {
 });
 
 const server = http.createServer((request, response) => {
+  if (request.url === '/main_top_cn.html') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(`<!doctype html><html><body><div class="top_info_link">${topModelText}</div></body></html>`);
+    return;
+  }
+  if (request.url === '/get_parameter.html') {
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify({ dev_info: { sw_ver: softwareVersion } }));
+    return;
+  }
   const body = pages[request.url];
   if (!body) {
     response.writeHead(404).end();
@@ -118,7 +130,7 @@ try {
     document.querySelectorAll('#skyline-page-assistant-host').forEach((host) => host.remove());
   `);
   await evaluate(await readFile(`${project}\\content\\controller.js`, 'utf8'));
-  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 5 && ${shadow}.getElementById('profile-status').textContent === '自动：短信设备（MP）'`);
   const initial = await evaluate(`(() => ({
     hosts: document.querySelectorAll('#skyline-page-assistant-host').length,
     homeVisible: !${shadow}.getElementById('module-home').hidden,
@@ -134,12 +146,14 @@ try {
   await writeFile(screenshotPath, Buffer.from(screenshot.data, 'base64'));
 
   await evaluate(`(() => {
+    const top = document.querySelector('iframe').contentDocument.querySelector('frame[name="top"]').contentDocument;
+    top.querySelector('.top_info_link').textContent = 'sk GoIP16/512 Version: 6.9x';
     const left = document.querySelector('iframe').contentDocument.querySelector('frame[name="left"]').contentDocument;
     left.querySelectorAll('a[target="right"]').forEach((link) => {
       if (['eims_settings_cn.html', 'goip_sms_ctl_cn.html'].includes(link.getAttribute('href'))) link.closest('li').classList.add('MenuOff');
     });
   })()`);
-  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 6 && ${shadow}.getElementById('profile-status').textContent === '自动：语音设备'`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9 && ${shadow}.getElementById('profile-status').textContent === '自动：语音设备（GoIP）'`);
   const automaticVoice = await evaluate(`(() => ({
     modules: ${shadow}.querySelectorAll('[data-module-id]').length,
     smsEntries: ${shadow}.querySelectorAll('[data-module-id="etms-registration"], [data-module-id="eims-settings"], [data-module-id="sms-control"]').length,
@@ -147,13 +161,14 @@ try {
     status: ${shadow}.getElementById('profile-status').textContent
   }))()`);
 
+  softwareVersion = '516-609-924-941-100-000';
   await evaluate(`(() => {
-    const left = document.querySelector('iframe').contentDocument.querySelector('frame[name="left"]').contentDocument;
-    left.querySelectorAll('a[target="right"]').forEach((link) => link.closest('li').classList.add('MenuOff'));
+    const top = document.querySelector('iframe').contentDocument.querySelector('frame[name="top"]').contentDocument;
+    top.querySelector('.top_info_link').textContent = 'TOP 192.168.90.242';
   })()`);
-  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 2 && ${shadow}.getElementById('profile-status').textContent === '自动：未识别'`);
-  const unknownFallback = await evaluate(`(() => ({
-    ids: Array.from(${shadow}.querySelectorAll('[data-module-id]'), (button) => button.dataset.moduleId),
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9 && ${shadow}.getElementById('profile-status').textContent === '自动：语音设备（516）'`);
+  const softwareFallback = await evaluate(`(() => ({
+    modules: ${shadow}.querySelectorAll('[data-module-id]').length,
     status: ${shadow}.getElementById('profile-status').textContent
   }))()`);
 
@@ -162,7 +177,7 @@ try {
     select.value = 'voice';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 6 && globalThis.__profilePreference === 'voice'`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9 && globalThis.__profilePreference === 'voice'`);
   const manualVoice = await evaluate(`(() => ({
     modules: ${shadow}.querySelectorAll('[data-module-id]').length,
     status: ${shadow}.getElementById('profile-status').textContent,
@@ -174,7 +189,7 @@ try {
     select.value = 'sms';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9 && globalThis.__profilePreference === 'sms'`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 5 && globalThis.__profilePreference === 'sms'`);
   const manualSms = await evaluate(`(() => ({
     modules: ${shadow}.querySelectorAll('[data-module-id]').length,
     status: ${shadow}.getElementById('profile-status').textContent,
@@ -182,18 +197,46 @@ try {
   }))()`);
 
   await evaluate(`(() => {
+    const top = document.querySelector('iframe').contentDocument.querySelector('frame[name="top"]').contentDocument;
+    top.querySelector('.top_info_link').textContent = 'MP 664 eSIM V8.5';
     const left = document.querySelector('iframe').contentDocument.querySelector('frame[name="left"]').contentDocument;
     left.querySelectorAll('a[target="right"]').forEach((link) => link.closest('li').classList.remove('MenuOff'));
     const select = ${shadow}.getElementById('profile-preference');
     select.value = 'auto';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9 && ${shadow}.getElementById('profile-status').textContent === '自动：短信设备' && globalThis.__profilePreference === 'auto'`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 5 && ${shadow}.getElementById('profile-status').textContent === '自动：短信设备（MP）' && globalThis.__profilePreference === 'auto'`);
   const restoredAuto = await evaluate(`(() => ({
     modules: ${shadow}.querySelectorAll('[data-module-id]').length,
     status: ${shadow}.getElementById('profile-status').textContent,
     saved: globalThis.__profilePreference
   }))()`);
+
+  softwareVersion = '';
+  await evaluate(`(() => {
+    const top = document.querySelector('iframe').contentDocument.querySelector('frame[name="top"]').contentDocument;
+    top.querySelector('.top_info_link').textContent = 'TOP 192.168.90.242';
+    const left = document.querySelector('iframe').contentDocument.querySelector('frame[name="left"]').contentDocument;
+    left.querySelectorAll('a[target="right"]').forEach((link) => link.closest('li').classList.add('MenuOff'));
+    const select = ${shadow}.getElementById('profile-preference');
+    select.value = 'voice';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    select.value = 'auto';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 9 && ${shadow}.getElementById('profile-status').textContent === '自动：未识别' && globalThis.__profilePreference === 'auto'`);
+  const unknownFallback = await evaluate(`(() => ({
+    ids: Array.from(${shadow}.querySelectorAll('[data-module-id]'), (button) => button.dataset.moduleId),
+    status: ${shadow}.getElementById('profile-status').textContent
+  }))()`);
+
+  await evaluate(`(() => {
+    const top = document.querySelector('iframe').contentDocument.querySelector('frame[name="top"]').contentDocument;
+    top.querySelector('.top_info_link').textContent = 'MP 664 eSIM V8.5';
+    const left = document.querySelector('iframe').contentDocument.querySelector('frame[name="left"]').contentDocument;
+    left.querySelectorAll('a[target="right"]').forEach((link) => link.closest('li').classList.remove('MenuOff'));
+  })()`);
+  await waitFor(`${shadow}.querySelectorAll('[data-module-id]').length === 5 && ${shadow}.getElementById('profile-status').textContent === '自动：短信设备（MP）'`);
 
   await evaluate(`${shadow}.querySelector('[data-module-id="imei"]').click()`);
   await waitFor(`${rightPath} === '/goip_imei_cn.html' && !${shadow}.getElementById('imei-workspace').hidden`);
@@ -257,14 +300,18 @@ try {
   assert.equal(initial.hosts, 1);
   assert.equal(initial.homeVisible, true);
   assert.equal(initial.imeiHidden, true);
-  assert.equal(initial.modules, 9);
-  assert.equal(initial.profile, '自动：短信设备', '双菜单设备应根据真实 SMS 菜单识别为短信设备，即使菜单默认折叠');
+  assert.equal(initial.modules, 5);
+  assert.equal(initial.profile, '自动：短信设备（MP）', '右上角 MP 型号应优先识别为短信设备');
   assert.equal(initial.preference, 'auto');
-  assert.deepEqual(automaticVoice, { modules: 6, smsEntries: 0, voiceEntries: 4, status: '自动：语音设备' });
-  assert.deepEqual(unknownFallback, { ids: ['imei', 'save-reboot'], status: '自动：未识别' });
-  assert.deepEqual(manualVoice, { modules: 6, status: '手动：语音设备', saved: 'voice' });
-  assert.deepEqual(manualSms, { modules: 9, status: '手动：短信设备', saved: 'sms' });
-  assert.deepEqual(restoredAuto, { modules: 9, status: '自动：短信设备', saved: 'auto' });
+  assert.deepEqual(automaticVoice, { modules: 9, smsEntries: 3, voiceEntries: 4, status: '自动：语音设备（GoIP）' });
+  assert.deepEqual(softwareFallback, { modules: 9, status: '自动：语音设备（516）' });
+  assert.deepEqual(unknownFallback, {
+    ids: ['imei', 'etms-registration', 'eims-settings', 'sms-control', 'call-duration', 'call-count', 'talk-numbers', 'call-control', 'save-reboot'],
+    status: '自动：未识别'
+  });
+  assert.deepEqual(manualVoice, { modules: 9, status: '手动：语音设备', saved: 'voice' });
+  assert.deepEqual(manualSms, { modules: 5, status: '手动：短信设备', saved: 'sms' });
+  assert.deepEqual(restoredAuto, { modules: 5, status: '自动：短信设备（MP）', saved: 'auto' });
   assert.equal(initial.viewportWidth, 1600);
   assert.ok(initial.panelRight <= initial.viewportWidth && initial.panelRight >= initial.viewportWidth - 40, '面板必须位于顶层视口右侧空白边缘');
   assert.deepEqual(imeiAttached, { path: '/goip_imei_cn.html', ports: 1, homeHidden: true });
@@ -278,7 +325,7 @@ try {
   assert.equal(reboot.submenuVisible, true, '应展开真实保存重启菜单');
   assert.match(reboot.badge, /^第 1 步 · .*Save and Reboot/);
   assert.match(reboot.message, /不会自动点击或自动重启/);
-  console.log(JSON.stringify({ initial, automaticVoice, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, navigation, reboot, screenshot: screenshotPath }, null, 2));
+  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, navigation, reboot, screenshot: screenshotPath }, null, 2));
   console.log('PASS: 设备识别与手动切换、ETMS 独立导航、全局操作、预览保护和保存重启仅定位均符合预期。');
 } finally {
   socket.close();

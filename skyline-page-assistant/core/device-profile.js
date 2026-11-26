@@ -32,7 +32,52 @@
     return Boolean(module && isLinkAvailable(findExactLink(doc, module.pages)));
   }
 
-  function detect(doc, moduleRegistry) {
+  function classifyModelText(value) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return { profile: 'unknown', detail: '' };
+    const sms = /\b(MP|MOIP)(?=\d|[^A-Za-z0-9_]|$)/i.exec(text);
+    if (sms) return { profile: 'sms', detail: sms[1].toUpperCase() };
+    const voice = /\b(GOIP|GP)(?=\d|[^A-Za-z0-9_]|$)/i.exec(text);
+    if (voice) return { profile: 'voice', detail: voice[1].toUpperCase() === 'GOIP' ? 'GoIP' : 'GP' };
+    const numeric = /\b([56]\d{2})(?=\s*(?:[-/]|\s|$))/.exec(text);
+    if (numeric) {
+      return {
+        profile: numeric[1][0] === '6' ? 'sms' : 'voice',
+        detail: numeric[1]
+      };
+    }
+    return { profile: 'unknown', detail: '' };
+  }
+
+  function classifySoftwareVersion(value) {
+    const text = String(value || '').trim();
+    if (!text) return { profile: 'unknown', detail: '' };
+    const model = /\b([56]\d{2})(?=-)/.exec(text);
+    if (model) {
+      return {
+        profile: model[1][0] === '6' ? 'sms' : 'voice',
+        detail: model[1]
+      };
+    }
+    const prefix = /^([56])/.exec(text);
+    if (prefix) {
+      return {
+        profile: prefix[1] === '6' ? 'sms' : 'voice',
+        detail: prefix[1]
+      };
+    }
+    return { profile: 'unknown', detail: '' };
+  }
+
+  function detect(doc, moduleRegistry, hints = {}) {
+    const model = classifyModelText(hints.modelText);
+    if (model.profile !== 'unknown') {
+      return { profile: model.profile, source: 'model', detail: model.detail, smsEvidence: [], voiceEvidence: [] };
+    }
+    const software = classifySoftwareVersion(hints.softwareVersion);
+    if (software.profile !== 'unknown') {
+      return { profile: software.profile, source: 'software', detail: software.detail, smsEvidence: [], voiceEvidence: [] };
+    }
     const smsEvidence = SMS_EVIDENCE
       .filter((pages) => isLinkAvailable(findExactLink(doc, pages)))
       .map((pages) => pages[0].replace(/_(?:en|cn)\.html$/, ''));
@@ -40,7 +85,13 @@
       .filter((module) => module.family === 'voice' && isModuleAvailable(doc, module))
       .map((module) => module.id);
     const profile = smsEvidence.length ? 'sms' : (voiceEvidence.length ? 'voice' : 'unknown');
-    return { profile, smsEvidence, voiceEvidence };
+    return {
+      profile,
+      source: profile === 'unknown' ? 'none' : 'menu',
+      detail: profile === 'sms' ? 'SMS 菜单' : (profile === 'voice' ? '语音菜单' : ''),
+      smsEvidence,
+      voiceEvidence
+    };
   }
 
   function normalizePreference(value) {
@@ -53,14 +104,15 @@
   }
 
   function modulesForProfile(modules, effectiveProfile) {
-    if (effectiveProfile === 'sms') return modules.slice();
-    if (effectiveProfile === 'voice') {
-      return modules.filter((module) => module.family === 'common' || module.family === 'voice');
+    if (effectiveProfile === 'sms') {
+      return modules.filter((module) => module.family === 'common' || module.family === 'sms');
     }
-    return modules.filter((module) => module.family === 'common');
+    return modules.slice();
   }
 
   return {
+    classifyModelText,
+    classifySoftwareVersion,
     detect,
     isModuleAvailable,
     modulesForProfile,

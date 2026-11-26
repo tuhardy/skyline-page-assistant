@@ -1,6 +1,6 @@
 {
   "name": "skyline-page-assistant",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "private": true,
   "description": "Top-level MV3 global navigator and guided IMEI assistant for real SKYLINE pages.",
   "scripts": {
