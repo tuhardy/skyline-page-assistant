@@ -23,7 +23,10 @@ function etmsDocument(options = {}) {
   const server = element({ value: options.server ?? 'remote.tyhtsf.com', disabled: Boolean(options.disabled) });
   const port = element({ value: options.port ?? '50000', disabled: Boolean(options.disabled) });
   const account = element({ value: options.account ?? 'testeSIM', disabled: Boolean(options.disabled) });
-  const password = element({ value: options.pagePassword ?? 'page-pw-must-not-leak', disabled: Boolean(options.disabled) });
+  const password = element({
+    value: options.passwordEmpty ? '' : (options.pagePassword ?? 'device-rendered-pw-must-not-leak'),
+    disabled: Boolean(options.disabled)
+  });
   const status = element({ textContent: options.status ?? '' });
   const submit = options.missingSubmit ? null : element({});
   const form = {
@@ -70,7 +73,7 @@ test('recognizes only real user_management pages with the ETMS form', () => {
   assert.equal(etms.isSupportedPage({ pathname: '/user_management_cn.html' }, etmsDocument({ missingSubmit: true }).doc), false);
 });
 
-test('reads current ETMS facts without exposing the page password in snapshots', () => {
+test('reads current ETMS facts and reduces the password to a non-empty boolean', () => {
   const { doc } = etmsDocument({ type: 0, status: 'Connecting' });
   const current = etms.readCurrent(doc);
   assert.equal(current.type, 0);
@@ -78,8 +81,16 @@ test('reads current ETMS facts without exposing the page password in snapshots',
   assert.equal(current.port, '50000');
   assert.equal(current.account, 'testeSIM');
   assert.equal(current.status, 'Connecting');
+  assert.equal(current.passwordFilled, true);
   assert.equal(current.disabled, false);
-  assert.equal(Object.hasOwn(etms.snapshot(current), 'password'), false);
+  const snap = etms.snapshot(current);
+  assert.equal(Object.hasOwn(snap, 'password'), false);
+  assert.equal(snap.passwordFilled, true);
+  assert.doesNotMatch(JSON.stringify(snap), /device-rendered-pw-must-not-leak/);
+
+  const empty = etms.readCurrent(etmsDocument({ passwordEmpty: true }).doc);
+  assert.equal(empty.passwordFilled, false);
+  assert.equal(etms.snapshot(empty).passwordFilled, false);
 });
 
 test('recognizes firmware whose ETMS fields carry only names, not ids', () => {
@@ -91,49 +102,51 @@ test('recognizes firmware whose ETMS fields carry only names, not ids', () => {
   assert.equal(current.port, '50000');
   assert.equal(current.account, 'testeSIM');
   assert.equal(current.status, 'OK');
+  assert.equal(current.passwordFilled, true);
   assert.equal(Object.hasOwn(etms.snapshot(current), 'password'), false);
 });
 
-test('creates a password-in-memory plan and validates registration fields', () => {
-  const current = etms.readCurrent(etmsDocument({ type: 0 }).doc);
-  const plan = etms.createChangePlan(current, {
-    server: ' remote.tyhtsf.com ',
-    port: '50000',
-    account: ' testeSIM ',
-    password: 'secret'
-  });
+test('creates a plan from the real form without the password ever entering it', () => {
+  const current = etms.readCurrent(etmsDocument().doc);
+  const plan = etms.createChangePlan(current);
   assert.equal(plan.kind, 'etms');
   assert.equal(plan.type, etms.ETMS_TYPE);
   assert.equal(plan.server, 'remote.tyhtsf.com');
   assert.equal(plan.port, 50000);
   assert.equal(plan.account, 'testeSIM');
-  assert.equal(plan.password, 'secret');
-  assert.equal(plan.changed, true);
+  assert.equal(Object.hasOwn(plan, 'password'), false);
+  assert.equal(Object.hasOwn(plan, 'changed'), false);
+  assert.equal(Object.hasOwn(plan, 'previous'), false);
   assert.equal(Object.hasOwn(plan.snapshot, 'password'), false);
-  assert.equal(Object.hasOwn(plan.previous, 'password'), false);
+  assert.equal(plan.snapshot.passwordFilled, true);
+  assert.doesNotMatch(JSON.stringify(plan), /device-rendered-pw-must-not-leak/);
 
-  const same = etms.createChangePlan(etms.readCurrent(etmsDocument().doc), {
-    server: 'remote.tyhtsf.com',
-    port: '50000',
-    account: 'testeSIM',
-    password: 'secret'
-  });
-  assert.equal(same.changed, false);
-  assert.throws(() => etms.createChangePlan(current, { server: '', port: '50000', account: 'a', password: 'b' }), /服务器/);
-  assert.throws(() => etms.createChangePlan(current, { server: 'a b', port: '50000', account: 'a', password: 'b' }), /空白/);
-  assert.throws(() => etms.createChangePlan(current, { server: 's', port: '0', account: 'a', password: 'b' }), /端口/);
-  assert.throws(() => etms.createChangePlan(current, { server: 's', port: '50000', account: '', password: 'b' }), /账号/);
-  assert.throws(() => etms.createChangePlan(current, { server: 's', port: '50000', account: 'a', password: '' }), /密码/);
-  assert.throws(() => etms.createChangePlan(etms.readCurrent(etmsDocument({ disabled: true }).doc), {
-    server: 's', port: '50000', account: 'a', password: 'b'
-  }), /禁用/);
+  const padded = etms.createChangePlan({ ...current, server: ' remote.tyhtsf.com ', account: ' testeSIM ' });
+  assert.equal(padded.server, 'remote.tyhtsf.com');
+  assert.equal(padded.account, 'testeSIM');
 });
 
-test('compares snapshots without status and evaluates readback without password', () => {
+test('rejects plans until the real form is ready, without touching the password', () => {
+  const current = etms.readCurrent(etmsDocument().doc);
+  assert.throws(() => etms.createChangePlan(null), /不是可识别/);
+  assert.throws(() => etms.createChangePlan(etms.readCurrent(etmsDocument({ type: 0 }).doc)), /选择 ETMS/);
+  assert.throws(() => etms.createChangePlan(etms.readCurrent(etmsDocument({ type: 1 }).doc)), /选择 ETMS/);
+  assert.throws(() => etms.createChangePlan(etms.readCurrent(etmsDocument({ passwordEmpty: true }).doc)), /密码/);
+  assert.throws(() => etms.createChangePlan(etms.readCurrent(etmsDocument({ disabled: true }).doc)), /禁用/);
+  assert.throws(() => etms.createChangePlan({ ...current, server: '' }), /服务器/);
+  assert.throws(() => etms.createChangePlan({ ...current, server: 'a b' }), /空白/);
+  assert.throws(() => etms.createChangePlan({ ...current, port: '0' }), /端口/);
+  assert.throws(() => etms.createChangePlan({ ...current, port: 'x' }), /数字/);
+  assert.throws(() => etms.createChangePlan({ ...current, account: '' }), /账号/);
+});
+
+test('compares snapshots including passwordFilled and evaluates readback without password', () => {
   const before = etms.snapshot(etms.readCurrent(etmsDocument({ status: 'Connecting' }).doc));
   const afterStatus = etms.snapshot(etms.readCurrent(etmsDocument({ status: 'OK' }).doc));
   assert.equal(etms.snapshotsEqual(before, afterStatus), true);
   assert.equal(etms.snapshotsEqual(before, etms.snapshot(etms.readCurrent(etmsDocument({ server: 'other.example.com' }).doc))), false);
+  const emptied = etms.snapshot(etms.readCurrent(etmsDocument({ passwordEmpty: true }).doc));
+  assert.equal(etms.snapshotsEqual(before, emptied), false);
 
   const pending = {
     kind: 'etms',
@@ -142,7 +155,7 @@ test('compares snapshots without status and evaluates readback without password'
   const ok = etms.evaluateRegistrationReadback(pending, etms.readCurrent(etmsDocument({ status: 'OK' }).doc));
   assert.equal(ok.status, 'success');
   assert.match(ok.message, /OK/);
-  assert.doesNotMatch(ok.message, /page-pw-must-not-leak|secret/);
+  assert.doesNotMatch(ok.message, /device-rendered-pw-must-not-leak|secret/);
   const waiting = etms.evaluateRegistrationReadback(pending, etms.readCurrent(etmsDocument({ status: 'Connecting' }).doc));
   assert.equal(waiting.status, 'unconfirmed');
   const mismatch = etms.evaluateRegistrationReadback(pending, etms.readCurrent(etmsDocument({ server: 'other.example.com', status: 'OK' }).doc));

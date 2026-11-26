@@ -122,8 +122,7 @@ try {
         currentValue: shadow ? (shadow.getElementById('etms-current-value') || {}).textContent : null,
         currentLine: shadow ? (shadow.getElementById('etms-current') || {}).textContent : null,
         result: shadow ? (shadow.getElementById('result') || {}).textContent : null,
-        serverInputValue: shadow && shadow.getElementById('etms-server') ? shadow.getElementById('etms-server').value : null,
-        passwordValue: shadow && shadow.getElementById('etms-password') ? shadow.getElementById('etms-password').value : null
+        panelFormRemoved: shadow ? (!shadow.getElementById('etms-server') && !shadow.getElementById('etms-password')) : null
       };
     })()`);
     if (etmsState.workspaceVisible && etmsState.currentValue && !/正在读取/.test(etmsState.currentValue)) break;

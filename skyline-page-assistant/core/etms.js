@@ -36,6 +36,8 @@
       port: port.value.trim(),
       account: account.value.trim(),
       status: status.textContent.trim(),
+      // 只记录密码框是否非空，绝不读取、保存或传输密码内容。
+      passwordFilled: Boolean(password.value),
       disabled: controls.some((control) => Boolean(control.disabled)),
       elements: { form, radios, checked, server, port, account, password, status, submit }
     };
@@ -65,13 +67,6 @@
     return account;
   }
 
-  function normalizePassword(value) {
-    const password = String(value || '');
-    if (!password) throw new Error('请输入 ETMS 账号密码；助手不会读取或保存页面现有密码。');
-    if (password.length > 128) throw new Error('ETMS 账号密码不能超过 128 个字符。');
-    return password;
-  }
-
   function snapshot(current) {
     if (!current) return null;
     return {
@@ -79,6 +74,7 @@
       server: current.server,
       port: String(current.port),
       account: current.account,
+      passwordFilled: Boolean(current.passwordFilled),
       disabled: Boolean(current.disabled)
     };
   }
@@ -89,35 +85,26 @@
       && a.server === b.server
       && a.port === b.port
       && a.account === b.account
+      && a.passwordFilled === b.passwordFilled
       && a.disabled === b.disabled;
   }
 
-  function createChangePlan(current, input) {
+  // 用户在真实表单中直接填写；这里只校验真实表单当前值并生成提交计划，
+  // 计划不包含、也不需要包含密码。
+  function createChangePlan(current) {
     if (!current) throw new Error('当前页面不是可识别的 ETMS 设备网管页面。');
-    if (current.disabled) throw new Error('ETMS 设备网管控件当前被页面禁用，不能代为修改。');
-    const server = normalizeServerHost(input && input.server);
-    const port = normalizePort(input && input.port);
-    const account = normalizeAccount(input && input.account);
-    const password = normalizePassword(input && input.password);
-    const changed = current.type !== ETMS_TYPE
-      || current.server !== server
-      || String(current.port) !== String(port)
-      || current.account !== account;
+    if (current.disabled) throw new Error('ETMS 设备网管控件当前被页面禁用，不能代为提交。');
+    if (current.type !== ETMS_TYPE) throw new Error('请先在真实表单中选择 ETMS 网管类型，再生成预览。');
+    const server = normalizeServerHost(current.server);
+    const port = normalizePort(current.port);
+    const account = normalizeAccount(current.account);
+    if (!current.passwordFilled) throw new Error('请先在真实表单中填写 ETMS 密码；助手不读取密码内容。');
     return {
       kind: 'etms',
       type: ETMS_TYPE,
       server,
       port,
       account,
-      password,
-      changed,
-      previous: {
-        type: current.type,
-        server: current.server,
-        port: String(current.port),
-        account: current.account,
-        status: current.status
-      },
       snapshot: snapshot(current)
     };
   }
@@ -164,7 +151,6 @@
     evaluateRegistrationReadback,
     isSupportedPage,
     normalizeAccount,
-    normalizePassword,
     normalizePort,
     normalizeServerHost,
     readCurrent,

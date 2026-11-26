@@ -302,26 +302,42 @@ try {
   const etmsAttached = await evaluate(`(() => ({
     workspaceVisible: !${shadow}.getElementById('etms-workspace').hidden,
     current: ${shadow}.getElementById('etms-current').textContent,
-    password: ${shadow}.getElementById('etms-password').value
+    panelFormRemoved: !${shadow}.getElementById('etms-server') && !${shadow}.getElementById('etms-port')
+      && !${shadow}.getElementById('etms-account') && !${shadow}.getElementById('etms-password')
   }))()`);
   // 设备页面异步刷新 ETMS 状态（readErmStatus），工作区应自动同步显示，无需重新附加
   await evaluate(`document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument.getElementById('ID_TdErmStatus').textContent = 'OK'`);
   await waitFor(`${shadow}.getElementById('etms-current').textContent.includes('状态 OK')`);
   const etmsAsyncStatus = await evaluate(`${shadow}.getElementById('etms-current').textContent`);
-  await evaluate(`${shadow}.getElementById('etms-password').value = 'secret'; ${shadow}.getElementById('etms-preview-button').click()`);
+  // 真实密码框为空时，预览必须失败且不显示预览；密码只能在真实表单填写
+  await evaluate(`${shadow}.getElementById('etms-preview-button').click()`);
+  await waitFor(`${shadow}.getElementById('result').textContent.includes('请先在真实表单中填写 ETMS 密码')`);
+  const etmsEmptyPassword = await evaluate(`(() => ({
+    result: ${shadow}.getElementById('result').textContent,
+    previewHidden: ${shadow}.getElementById('etms-preview').hidden
+  }))()`);
+  // 用户直接在右侧真实表单填写密码，扩展只检查非空、不读取内容
+  await evaluate(`(() => {
+    const right = document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument;
+    right.getElementById('ID_ermc_password').value = 'secret';
+  })()`);
+  await evaluate(`${shadow}.getElementById('etms-preview-button').click()`);
   await waitFor(`${shadow}.getElementById('etms-preview').hidden === false`);
   const etmsPreview = await evaluate(`(() => ({
     text: ${shadow}.getElementById('etms-preview').textContent,
-    password: ${shadow}.getElementById('etms-password').value
+    passwordLabel: ${shadow}.getElementById('etms-preview-password').textContent
   }))()`);
   await evaluate(`${shadow}.getElementById('etms-execute-button').click()`);
   await waitFor(`${shadow}.getElementById('result').textContent.includes('ETMS 注册状态已回读为 OK')`);
-  const etmsResult = await evaluate(`(() => ({
-    result: ${shadow}.getElementById('result').textContent,
-    pending: globalThis.__pending['skyline.etms.pending'] || null,
-    password: ${shadow}.getElementById('etms-password').value,
-    status: document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument.getElementById('ID_TdErmStatus').textContent
-  }))()`);
+  const etmsResult = await evaluate(`(() => {
+    const right = document.querySelector('iframe').contentDocument.querySelector('frame[name="right"]').contentDocument;
+    return {
+      result: ${shadow}.getElementById('result').textContent,
+      pending: globalThis.__pending['skyline.etms.pending'] || null,
+      realPasswordKept: right.getElementById('ID_ermc_password').value,
+      status: right.getElementById('ID_TdErmStatus').textContent
+    };
+  })()`);
 
   await evaluate(`${shadow}.querySelector('[data-module-id="eims-settings"]').click()`);
   await waitFor(`${rightPath} === '/eims_settings_cn.html'`);
@@ -368,22 +384,26 @@ try {
   assert.deepEqual(etmsNavigation, { path: '/user_management_cn.html', active: true, moduleName: 'ETMS 注册' });
   assert.equal(etmsAttached.workspaceVisible, true, 'ETMS 页面应进入独立工作区');
   assert.match(etmsAttached.current, /ETMS · remote\.tyhtsf\.com:50000 · testeSIM/);
-  assert.equal(etmsAttached.password, '', 'ETMS 工作区不得读取或回填页面密码');
+  assert.equal(etmsAttached.panelFormRemoved, true, '面板不再提供服务/密码等表单字段，全部直接在真实表单填写');
   assert.match(etmsAsyncStatus, /状态 OK/, '页面异步刷新 ETMS 状态后，工作区应自动同步显示，无需重新附加');
-  assert.equal(etmsPreview.password, 'secret', '生成预览后密码应保留在面板密码框（仅内存、掩码），便于多次尝试');
+  assert.match(etmsEmptyPassword.result, /请先在真实表单中填写 ETMS 密码/);
+  assert.equal(etmsEmptyPassword.previewHidden, true, '真实密码框为空时不得生成预览');
+  assert.match(etmsPreview.text, /remote\.tyhtsf\.com/);
+  assert.match(etmsPreview.text, /testeSIM/);
   assert.doesNotMatch(etmsPreview.text, /secret/, 'ETMS 预览不得显示密码');
-  assert.match(etmsPreview.text, /不显示、不保存/);
+  assert.match(etmsPreview.passwordLabel, /已填写/);
+  assert.match(etmsPreview.text, /不读取、不显示、不保存/);
   assert.equal(etmsResult.status, 'OK');
   assert.equal(etmsResult.pending, null, 'ETMS 成功回读后应清除待回读记录');
-  assert.equal(etmsResult.password, '', 'ETMS 注册成功回读后应清除密码输入框');
+  assert.equal(etmsResult.realPasswordKept, 'secret', '真实表单保持用户填写的内容，扩展不清除密码框');
   assert.match(etmsResult.result, /密码未保存/);
   assert.deepEqual(navigation, { path: '/eims_settings_cn.html', homeVisible: true, active: true });
   assert.equal(reboot.path, '/eims_settings_cn.html', 'Save/Reboot 指导不得自动导航或重启');
   assert.equal(reboot.submenuVisible, true, '应展开真实保存重启菜单');
   assert.match(reboot.badge, /^第 1 步 · .*Save and Reboot/);
   assert.match(reboot.message, /不会自动点击或自动重启/);
-  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsAsyncStatus, etmsPreview, etmsResult, navigation, reboot, screenshot: screenshotPath }, null, 2));
-  console.log('PASS: 设备识别与手动切换、ETMS 独立注册指导/代操作、全局操作、预览保护和保存重启仅定位均符合预期。');
+  console.log(JSON.stringify({ initial, automaticVoice, softwareFallback, unknownFallback, manualVoice, manualSms, restoredAuto, imeiAttached, guarded, attemptedNavigation, etmsNavigation, etmsAttached, etmsAsyncStatus, etmsEmptyPassword, etmsPreview, etmsResult, navigation, reboot, screenshot: screenshotPath }, null, 2));
+  console.log('PASS: 设备识别与手动切换、ETMS 真实表单直填注册指导/确认后代操作、全局操作、预览保护和保存重启仅定位均符合预期。');
 } finally {
   socket.close();
   await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);

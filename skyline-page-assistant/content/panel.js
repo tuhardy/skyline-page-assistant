@@ -32,9 +32,9 @@
 
   const ETMS_STEPS = [
     ['确认 ETMS 区块', '只在“用户及设备管理”的设备网管区块操作。'],
-    ['选择 ETMS', '网管类型必须选择 ETMS；NONE/ERMS 不是本流程。'],
-    ['填写注册信息', '输入服务器、端口、账号和密码；密码不保存。'],
-    ['预览并提交', '核对非密码字段后，再确认真实 Submit。'],
+    ['选择 ETMS', '在真实表单把网管类型选为 ETMS；NONE/ERMS 不是本流程。'],
+    ['填写注册信息', '直接在右侧真实表单填写服务器、端口、账号和密码。'],
+    ['预览并提交', '核对真实表单的非密码字段后，再确认真实 Submit。'],
     ['回读状态', '等待真实状态变为 OK；不打开外部注册链接。']
   ];
 
@@ -229,12 +229,8 @@
             <form id="etms-form">
               <h3 class="form-title">ETMS 注册</h3>
               <div class="current" id="etms-current">当前：正在读取…</div>
-              <label class="field">服务器 IP / 域名<input id="etms-server" data-etms-operation type="text" autocomplete="off" maxlength="64" required></label>
-              <label class="field">网管端口<input id="etms-port" data-etms-operation type="number" min="1" max="65535" step="1" required></label>
-              <label class="field">ETMS 账号<input id="etms-account" data-etms-operation type="text" autocomplete="off" maxlength="64" required></label>
-              <label class="field">ETMS 密码<input id="etms-password" data-etms-operation type="password" autocomplete="new-password" maxlength="128" required></label>
-              <div class="notice">没有 ETMS 账号？请先在服务商处注册；助手不会打开外部注册链接，也不会读取或保存页面现有密码。</div>
-              <button class="primary" id="etms-preview-button" data-etms-operation type="submit">预览 ETMS 注册</button>
+              <div class="notice">请直接在右侧真实表单中选择 ETMS 类型，并填写服务器、端口、账号和密码；助手只读取非密码字段，密码只检查是否已填写。没有 ETMS 账号？请先在服务商处注册；助手不会打开外部注册链接。</div>
+              <button class="primary" id="etms-preview-button" data-etms-operation type="submit">读取真实表单并预览</button>
             </form>
             <section class="preview" id="etms-preview" hidden>
               <div class="preview-title">核对 ETMS 注册</div>
@@ -242,7 +238,7 @@
               <div class="change-line"><span>服务器</span><strong id="etms-preview-server"></strong></div>
               <div class="change-line"><span>端口</span><strong id="etms-preview-port"></strong></div>
               <div class="change-line"><span>账号</span><strong id="etms-preview-account"></strong></div>
-              <div class="change-line"><span>密码</span><strong>已填写（不显示、不保存）</strong></div>
+              <div class="change-line"><span>密码</span><strong id="etms-preview-password">已填写（不读取、不显示）</strong></div>
               <div class="auto-note" id="etms-auto-note"></div>
               <button class="primary" id="etms-execute-button" type="button">确认并提交</button>
               <button class="secondary" id="etms-cancel-preview" type="button">取消预览</button>
@@ -271,10 +267,6 @@
       this.moduleHome = this.shadow.getElementById('module-home');
       this.imeiWorkspace = this.shadow.getElementById('imei-workspace');
       this.etmsWorkspace = this.shadow.getElementById('etms-workspace');
-      this.etmsServer = this.shadow.getElementById('etms-server');
-      this.etmsPort = this.shadow.getElementById('etms-port');
-      this.etmsAccount = this.shadow.getElementById('etms-account');
-      this.etmsPassword = this.shadow.getElementById('etms-password');
       this.etmsPreviewButton = this.shadow.getElementById('etms-preview-button');
       this.etmsPreviewSection = this.shadow.getElementById('etms-preview');
       this.etmsExecuteButton = this.shadow.getElementById('etms-execute-button');
@@ -333,12 +325,9 @@
         event.preventDefault();
         if (!this.busy) this.emit('onBatchPrepare', this.getBatchSelection());
       });
-      [this.etmsServer, this.etmsPort, this.etmsAccount, this.etmsPassword].forEach((field) => {
-        field.addEventListener('input', () => this.clearEtmsPreview());
-      });
       this.shadow.getElementById('etms-form').addEventListener('submit', (event) => {
         event.preventDefault();
-        if (!this.busy) this.emit('onEtmsPreview', this.getEtmsSelection());
+        if (!this.busy) this.emit('onEtmsPreview');
       });
       this.etmsExecuteButton.addEventListener('click', () => {
         if (!this.busy && this.etmsPlan) this.emit('onEtmsExecute', this.etmsPlan);
@@ -421,7 +410,7 @@
       this.moduleList.querySelectorAll('[data-module-id]').forEach((button) => {
         button.classList.toggle('active', button.dataset.moduleId === activeId);
       });
-      this.clearEtmsPreview(true);
+      this.clearEtmsPreview();
       this.clearPreview();
     }
 
@@ -468,14 +457,8 @@
     setEtmsPage(current) {
       this.etmsCurrent = current || null;
       this.showEtms();
-      if (!this.etmsPlan) {
-        this.etmsServer.value = current ? current.server : '';
-        this.etmsPort.value = current ? current.port : '';
-        this.etmsAccount.value = current ? current.account : '';
-      }
       this.updateEtmsCurrent();
-      // 密码保留在密码框中：注册常需多次尝试，成功、取消或离开本页时才清除。
-      this.clearEtmsPreview(false);
+      this.clearEtmsPreview();
     }
 
     updateEtmsCurrent() {
@@ -525,24 +508,13 @@
       });
     }
 
-    getEtmsSelection() {
-      return {
-        server: this.etmsServer.value.trim(),
-        port: this.etmsPort.value.trim(),
-        account: this.etmsAccount.value.trim(),
-        password: this.etmsPassword.value
-      };
-    }
-
     setEtmsPreview(plan) {
       this.etmsPlan = { ...plan, attempted: false };
       this.shadow.getElementById('etms-preview-type').textContent = 'ETMS';
       this.shadow.getElementById('etms-preview-server').textContent = plan.server;
       this.shadow.getElementById('etms-preview-port').textContent = String(plan.port);
       this.shadow.getElementById('etms-preview-account').textContent = plan.account;
-      this.shadow.getElementById('etms-auto-note').textContent = plan.changed
-        ? '将提交以上非密码字段；密码只随本次真实 Submit 发送，不显示、不保存；成功或离开本页后自动清除，多次尝试无需重复输入。'
-        : '非密码字段未变化；仍将提交 ETMS 设置。密码只随本次真实 Submit 发送，不显示、不保存；成功或离开本页后自动清除，多次尝试无需重复输入。';
+      this.shadow.getElementById('etms-auto-note').textContent = '将按右侧真实表单的当前值提交；密码只确认已填写，不读取、不显示、不保存。';
       this.etmsPreviewSection.hidden = false;
       this.etmsExecuteButton.textContent = '确认并提交 ETMS 注册';
       this.updateEtmsLock();
@@ -550,11 +522,10 @@
       this.setResult('info', 'ETMS 预览尚未提交。');
     }
 
-    clearEtmsPreview(clearPassword = false) {
+    clearEtmsPreview() {
       this.etmsPlan = null;
       this.etmsPreviewSection.hidden = true;
       this.etmsExecuteButton.disabled = true;
-      if (clearPassword) this.etmsPassword.value = '';
       this.updateEtmsLock();
     }
 
@@ -566,9 +537,7 @@
 
     updateEtmsLock() {
       const locked = Boolean(this.etmsPlan);
-      [this.etmsServer, this.etmsPort, this.etmsAccount, this.etmsPassword, this.etmsPreviewButton].forEach((control) => {
-        control.disabled = this.busy || locked;
-      });
+      this.etmsPreviewButton.disabled = this.busy || locked;
       this.etmsExecuteButton.disabled = this.busy || !this.etmsPlan;
     }
 

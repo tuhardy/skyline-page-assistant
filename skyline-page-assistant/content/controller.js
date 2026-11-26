@@ -436,17 +436,12 @@
     const labels = {
       1: '确认设备网管区块',
       2: '选择 ETMS 网管类型',
-      3: '填写服务器、端口、账号和密码',
+      3: '在真实表单填写服务器、端口、账号、密码',
       4: '核对预览后点击真实 Submit',
       5: '等待状态回读为 OK'
     };
     panel.setEtmsStep(step);
     highlight(etmsStepTarget(step), step, labels[step] || 'ETMS 注册', scroll);
-  }
-
-  function dispatchEtmsInput(control) {
-    control.dispatchEvent(new pageWindow.Event('input', { bubbles: true }));
-    control.dispatchEvent(new pageWindow.Event('change', { bubbles: true }));
   }
 
   // ETMS 状态由设备页面异步刷新（注册成功后再回到本页时，附加瞬间状态往往还没就绪），
@@ -458,21 +453,6 @@
     etmsStatusRefreshAt = now;
     const current = etms.readCurrent(pageDocument);
     if (current) panel.refreshEtmsCurrent(current);
-  }
-
-  function fillEtmsPlan(plan) {
-    const current = etms.readCurrent(pageDocument);
-    if (!current) throw new Error('真实 ETMS 表单已不存在，未执行提交。');
-    const elements = current.elements;
-    const etmsRadio = elements.radios.find((radio) => Number(radio.value) === etms.ETMS_TYPE);
-    if (!etmsRadio) throw new Error('真实页面找不到 ETMS 网管类型，未执行提交。');
-    if (!etmsRadio.checked) etmsRadio.click();
-    else etmsRadio.dispatchEvent(new pageWindow.Event('change', { bubbles: true }));
-    elements.server.value = plan.server;
-    elements.port.value = String(plan.port);
-    elements.account.value = plan.account;
-    elements.password.value = plan.password;
-    [elements.server, elements.port, elements.account, elements.password].forEach(dispatchEtmsInput);
   }
 
   function scheduleEtmsVerification(targetDocument, delay) {
@@ -497,7 +477,7 @@
       await pendingStorage('remove', null, ETMS_STORAGE_KEY);
       etmsSubmitting = false;
       panel.setBusy(false);
-      panel.clearEtmsPreview(false);
+      panel.clearEtmsPreview();
       panel.setResult('unconfirmed', '一次 ETMS 注册已超过 15 分钟，停止自动回读。请人工检查真实页面状态。');
       return;
     }
@@ -508,7 +488,7 @@
     etmsSubmitting = false;
     panel.setBusy(false);
     if (result.status === 'success') {
-      panel.clearEtmsPreview(true);
+      panel.clearEtmsPreview();
       panel.setEtmsStep(5);
       panel.setResult('success', result.message);
       highlight(current && current.elements.status, 5, 'ETMS 状态 OK', false);
@@ -516,7 +496,7 @@
       return;
     }
     if (result.status === 'failure') {
-      panel.clearEtmsPreview(false);
+      panel.clearEtmsPreview();
       panel.setResult('failure', result.message);
       highlight(current && current.elements.status, 5, 'ETMS 回读不一致', false);
       await pendingStorage('remove', null, ETMS_STORAGE_KEY);
@@ -531,7 +511,7 @@
       return;
     }
     await pendingStorage('remove', null, ETMS_STORAGE_KEY);
-    panel.clearEtmsPreview(false);
+    panel.clearEtmsPreview();
     panel.setResult('unconfirmed', `${result.message} 已等待约 30 秒，请人工核对 ETMS 状态。`);
   }
 
@@ -540,7 +520,13 @@
     const current = etms.readCurrent(pageDocument);
     if (!current) throw new Error('真实 ETMS 表单已不存在，未执行提交。');
     if (!etms.snapshotsEqual(plan.snapshot, etms.snapshot(current))) {
-      throw new Error('预览后 ETMS 页面状态已变化，已停止 Submit。请重新生成预览。');
+      throw new Error('预览后真实表单已变化，已停止 Submit。请重新生成预览。');
+    }
+    if (current.type !== etms.ETMS_TYPE) {
+      throw new Error('真实表单的网管类型已不是 ETMS，已停止 Submit。');
+    }
+    if (!current.passwordFilled) {
+      throw new Error('真实密码框已为空，请在真实表单重新填写密码后再提交。');
     }
     const submittedDocument = pageDocument;
     const pending = {
@@ -562,18 +548,11 @@
       await pendingStorage('remove', null, ETMS_STORAGE_KEY);
       throw new Error('等待写入回读记录时真实页面已变化，未点击 Submit。请重新识别页面并预览。');
     }
-    try {
-      fillEtmsPlan(plan);
-    } catch (error) {
-      await pendingStorage('remove', null, ETMS_STORAGE_KEY);
-      throw error;
-    }
-    plan.password = '';
     etmsSubmitting = true;
     panel.setBusy(true);
     panel.markEtmsAttempted();
     panel.setEtmsStep(5);
-    panel.setResult('info', '已填写 ETMS 注册信息，正在点击真实 Submit。结果必须等待状态回读为 OK。');
+    panel.setResult('info', '正在点击真实表单原有的 Submit。结果必须等待状态回读为 OK。');
     highlight(current.elements.submit, 4, '已调用真实 Submit，等待状态 OK', false);
     current.elements.submit.click();
     scheduleEtmsVerification(submittedDocument, 1000);
@@ -626,11 +605,11 @@
       }
       highlightEtmsStep(step);
     },
-    onEtmsPreview(selection) {
+    onEtmsPreview() {
       try {
         const current = etms.readCurrent(pageDocument);
         if (!current) throw new Error('当前页面不是可识别的 ETMS 设备网管页面。');
-        const plan = etms.createChangePlan(current, selection);
+        const plan = etms.createChangePlan(current);
         panel.setEtmsPreview(plan);
         highlightEtmsStep(4, false);
       } catch (error) {
@@ -638,9 +617,9 @@
       }
     },
     onEtmsCancel() {
-      panel.clearEtmsPreview(true);
+      panel.clearEtmsPreview();
       panel.setEtmsStep(3);
-      panel.setResult('info', '已取消 ETMS 预览；未填写或提交真实页面。');
+      panel.setResult('info', '已取消 ETMS 预览；未点击 Submit，真实表单保持你填写的内容。');
       highlightEtmsStep(3, false);
     },
     onEtmsExecute(plan) {
@@ -996,7 +975,7 @@
     submitting = false;
     etmsSubmitting = false;
     panel.setBusy(false);
-    panel.clearEtmsPreview(true);
+    panel.clearEtmsPreview();
     panel.clearPreview();
     if (isMainPage) {
       panel.showModules(activeModule && activeModule.id, activeModule);
